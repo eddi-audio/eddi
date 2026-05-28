@@ -1,0 +1,227 @@
+{
+  "project": "Eddi",
+  "description": "NFC card-activated music player. Each physical NFC card encodes a music link. Tapping the card opens eddi.audio/c/{id} — a linktree-style page that lets the tapper play the music on their preferred streaming service.",
+  "domains": [
+    {
+      "name": "Edge / Frontend",
+      "provider": "Cloudflare",
+      "services": [
+        {
+          "name": "Cloudflare Pages",
+          "purpose": "Hosts the React SPA (eddi.audio). Serves the card page (/c/:id) and NFC writer (/write) to end users.",
+          "repo_path": "packages/web",
+          "tech": ["Vite", "React 19", "TypeScript", "Tailwind CSS v4"]
+        },
+        {
+          "name": "Cloudflare Pages Functions",
+          "purpose": "Server-side rendering for social crawlers (iMessage, Twitter, WhatsApp). Intercepts /c/{id} requests, checks the User-Agent, and for bots returns pre-rendered HTML with OG meta tags so link previews work. Regular users get the SPA.",
+          "repo_path": "packages/web/functions/c/[id].ts"
+        },
+        {
+          "name": "Cloudflare DNS",
+          "purpose": "Manages DNS for eddi.audio and eddiaudio.com"
+        },
+        {
+          "name": "Cloudflare WAF",
+          "purpose": "Rate limiting and DDoS protection at the edge, before traffic reaches AWS"
+        }
+      ]
+    },
+    {
+      "name": "Backend API",
+      "provider": "AWS",
+      "region": "us-east-1",
+      "services": [
+        {
+          "name": "API Gateway",
+          "purpose": "REST API at api.eddi.audio. Entry point for all backend calls from the SPA and Cloudflare Pages Functions.",
+          "routes": [
+            { "method": "GET",  "path": "/cards/{id}",         "handler": "card-lookup",  "description": "Fetch card data and increment tap count" },
+            { "method": "POST", "path": "/cards/{id}/events",  "handler": "event-log",    "description": "Log analytics events (tap, play, share, duplicate)" },
+            { "method": "POST", "path": "/resolve",            "handler": "card-write",   "description": "Resolve a Spotify/Apple Music URL to metadata (preview before writing)" },
+            { "method": "POST", "path": "/cards",              "handler": "card-write",   "description": "Save a new card to DynamoDB after NFC write" },
+            { "method": "GET",  "path": "/og/{id}",            "handler": "og-image",     "description": "Generate and serve OG preview image for social sharing" }
+          ]
+        },
+        {
+          "name": "Lambda: card-lookup",
+          "purpose": "Reads card data from DynamoDB. Atomically increments the tap counter on every load. Returns card JSON to the SPA.",
+          "repo_path": "packages/backend/lambda/card-lookup/index.ts",
+          "memory_mb": 256,
+          "timeout_sec": 10
+        },
+        {
+          "name": "Lambda: event-log",
+          "purpose": "Writes analytics events to the card_events table. Called fire-and-forget from the SPA when a user taps, plays, shares, or duplicates a card.",
+          "repo_path": "packages/backend/lambda/event-log/index.ts",
+          "memory_mb": 128,
+          "timeout_sec": 5
+        },
+        {
+          "name": "Lambda: card-write",
+          "purpose": "Two jobs: (1) /resolve — takes a Spotify URL, fetches metadata from Spotify API using client credentials, returns title/artwork/service URIs for preview. (2) /cards — generates a card ID, downloads and caches artwork to S3, extracts artwork color palette with Sharp, saves card to DynamoDB.",
+          "repo_path": "packages/backend/lambda/card-write/index.ts",
+          "memory_mb": 512,
+          "timeout_sec": 30,
+          "dependencies": ["Sharp (image processing)", "Spotify Web API", "AWS SSM (Spotify credentials)", "DynamoDB", "S3"]
+        },
+        {
+          "name": "Lambda: og-image",
+          "purpose": "Generates the 1200x630px social preview image for a card. Composites album artwork + semi-transparent overlay + title text + Eddi wordmark using Sharp. Caches result in S3 — subsequent requests redirect to the cached image.",
+          "repo_path": "packages/backend/lambda/og-image/index.ts",
+          "memory_mb": 1024,
+          "timeout_sec": 30,
+          "dependencies": ["Sharp (image processing)", "DynamoDB", "S3"]
+        },
+        {
+          "name": "Lambda Layer: Sharp",
+          "purpose": "Pre-compiled Sharp image library for Linux ARM64. Shared by card-write and og-image Lambdas. Requires Docker to build (compiles C++ Sharp binaries for Linux inside a container).",
+          "repo_path": "packages/backend/layers/sharp"
+        }
+      ]
+    },
+    {
+      "name": "Database",
+      "provider": "AWS DynamoDB",
+      "region": "us-east-1",
+      "tables": [
+        {
+          "name": "eddi-cards",
+          "purpose": "Primary card store. One item per NFC card. Contains title, artwork URL, artwork color palette, streaming service URLs, tap count, attribution, and active/inactive flag.",
+          "partition_key": "id",
+          "billing": "PAY_PER_REQUEST",
+          "pitr": true
+        },
+        {
+          "name": "eddi-card-events",
+          "purpose": "Analytics event log. Every tap, play, share, and duplicate is written here. Items auto-delete after 30 days via TTL.",
+          "partition_key": "card_id",
+          "sort_key": "ts_event_id",
+          "billing": "PAY_PER_REQUEST",
+          "ttl_days": 30
+        },
+        {
+          "name": "eddi-isrc-cache",
+          "purpose": "Cache for cross-service music resolution. When a track is resolved to Apple Music / YouTube / Tidal URLs via ISRC, the result is cached here. Avoids re-calling service APIs for the same track. Items expire after 90 days. Populated by the resolver sprint (not yet built).",
+          "partition_key": "isrc",
+          "billing": "PAY_PER_REQUEST",
+          "ttl_days": 90
+        }
+      ]
+    },
+    {
+      "name": "Storage",
+      "provider": "AWS S3",
+      "region": "us-east-1",
+      "buckets": [
+        {
+          "name": "eddi-artwork-{account_id}",
+          "purpose": "Album and playlist artwork cached at card-write time. Sourced from Spotify's CDN, stored permanently so card pages still show artwork years later even if Spotify rotates their CDN URLs. Also the source image for OG image generation."
+        },
+        {
+          "name": "eddi-og-images-{account_id}",
+          "purpose": "Pre-rendered social preview images (1200x630 JPEGs). Generated once per card by the og-image Lambda, served via redirect on subsequent requests. Cached indefinitely."
+        }
+      ]
+    },
+    {
+      "name": "NFC Card Layer",
+      "description": "Physical NTAG215 NFC cards. Each card has multiple NDEF records written to it.",
+      "ndef_records": [
+        {
+          "record": 1,
+          "type": "URL",
+          "content": "https://eddi.audio/c/{id}",
+          "purpose": "Primary record. Read first by both phones (opens the card page) and Eddi hardware devices (pings the server for resolution). This is the universal entry point."
+        },
+        {
+          "record": 2,
+          "type": "URL",
+          "content": "https://open.spotify.com/...",
+          "purpose": "Spotify URL. Direct link to the content on Spotify. Serves as a durability layer — if Eddi's servers ever go offline, the card still encodes the content location directly."
+        },
+        {
+          "records": "3+",
+          "type": "URL",
+          "content": "Apple Music, YouTube Music, Tidal, Amazon Music URLs",
+          "purpose": "Additional service URLs. Populated by the resolver sprint. Makes the card a self-describing multi-service pointer — the core patent claim.",
+          "status": "Populated in resolver sprint (not yet built)"
+        }
+      ],
+      "writer": {
+        "web": "eddi.audio/write — Chrome on Android only (Web NFC API). Paste a Spotify URL, preview the card, tap a blank NTAG215 to write.",
+        "app": "Eddi iOS/Android app — not yet built"
+      }
+    },
+    {
+      "name": "Music Resolution",
+      "description": "How a single streaming URL becomes URLs for all services. Not yet built — resolver sprint is next.",
+      "mechanism": "ISRC (International Standard Recording Code) — every track has a unique 12-character code that is identical across all streaming platforms. The resolver fetches the ISRC from the source URL, then queries each target service by ISRC to get their URL.",
+      "services": [
+        { "service": "Apple Music",   "method": "Official API — ISRC lookup endpoint", "status": "planned" },
+        { "service": "Tidal",         "method": "Official beta API — ISRC lookup",     "status": "planned" },
+        { "service": "YouTube Music", "method": "ytmusicapi (open source, unofficial)", "status": "planned" },
+        { "service": "Amazon Music",  "method": "Musicfetch (third-party) or defer",   "status": "planned" },
+        { "service": "Spotify",       "method": "Official API — source + reverse",     "status": "active" }
+      ],
+      "cache": "Resolved ISRCs cached in eddi-isrc-cache DynamoDB table for 90 days"
+    },
+    {
+      "name": "Analytics",
+      "description": "In-house, no Google Analytics.",
+      "metrics": [
+        "Tap count per card (DynamoDB atomic counter, shown on card page)",
+        "Service selection distribution (which streaming service tappers choose)",
+        "Referrer breakdown (NFC tap vs shared link vs social)",
+        "Geo distribution (country/region from IP)",
+        "Wild tap ratio (cards tapped by someone other than the creator)"
+      ],
+      "pipeline": "card_events table → S3 export → Athena (ad-hoc queries for pitch deck metrics)"
+    },
+    {
+      "name": "Openness / Anti-Enshittification",
+      "description": "Cards work forever even if Eddi shuts down.",
+      "mechanism": "Nightly Git manifest archive — every card's resolution recipe (ordered ISRCs for all tracks) is dumped to a public GitHub repo nightly. ISRCs never expire and are the universal cross-service key. Anyone can reconstruct any card's content from the archive alone, with no Eddi server.",
+      "status": "Planned — not yet built"
+    }
+  ],
+  "data_flow": {
+    "card_tap_phone": [
+      "Phone reads NFC tag → Record 1 opens eddi.audio/c/{id}",
+      "Cloudflare Pages Function checks User-Agent",
+      "Human → serves React SPA",
+      "SPA fetches GET /cards/{id} from API Gateway",
+      "card-lookup Lambda reads DynamoDB, increments tap_count",
+      "SPA renders card page with artwork, service buttons, attribution",
+      "User taps a service button → HTTPS URL → OS opens native app"
+    ],
+    "social_share": [
+      "User shares eddi.audio/c/{id} link",
+      "iMessage/Twitter/WhatsApp fetches the URL for preview",
+      "Cloudflare Pages Function detects bot User-Agent",
+      "Fetches card data from AWS API",
+      "Returns pre-rendered HTML with OG meta tags",
+      "og-image Lambda generates 1200x630 preview image (cached in S3)",
+      "Platform shows rich preview with album art + title"
+    ],
+    "card_write_web": [
+      "User navigates to eddi.audio/write on Chrome Android",
+      "Pastes a Spotify URL",
+      "SPA calls POST /resolve → card-write Lambda fetches Spotify metadata",
+      "User sees preview (artwork, title, service badges)",
+      "User taps 'Write to card' → NDEFReader API activates",
+      "SPA calls POST /cards → card-write Lambda generates ID, caches artwork, saves to DynamoDB",
+      "NDEFReader writes NDEF records to blank NFC tag",
+      "Card is ready — tapping it opens eddi.audio/c/{new_id}"
+    ]
+  },
+  "cost_estimate_monthly": {
+    "note": "Estimated at low/pre-launch volume",
+    "cloudflare_pages": "$0 (free tier)",
+    "api_gateway": "< $1",
+    "lambda": "< $1",
+    "dynamodb": "$0 (PAY_PER_REQUEST, minimal reads/writes at launch)",
+    "s3": "< $1",
+    "total": "< $5/month until meaningful scale"
+  }
+}
