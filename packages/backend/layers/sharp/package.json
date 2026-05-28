@@ -1,0 +1,8 @@
+{
+  "name": "sharp-layer",
+  "version": "1.0.0",
+  "description": "Sharp image processing — compiled for Lambda linux/arm64",
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
+}

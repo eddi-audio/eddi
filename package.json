@@ -1,0 +1,15 @@
+{
+  "name": "eddi",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=packages/web",
+    "build": "npm run build --workspace=packages/web",
+    "deploy:backend": "npm run deploy --workspace=packages/backend"
+  }
+}
