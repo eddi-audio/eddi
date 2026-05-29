@@ -34,3 +34,9 @@ Thumbs.db
 
 # Local setup / credentials (never commit)
 SETUP.md
+
+# Business docs, legal, hardware (local only)
+Biz Docs/
+hardware/
+Archive/
+app/web/email-signup-pre-release
