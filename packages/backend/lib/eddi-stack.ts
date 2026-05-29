@@ -21,7 +21,7 @@ export class EddiStack extends cdk.Stack {
       partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      pointInTimeRecovery: true,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     })
 
     const cardEventsTable = new dynamodb.Table(this, 'CardEventsTable', {
@@ -46,11 +46,12 @@ export class EddiStack extends cdk.Stack {
 
     const artworkBucket = new s3.Bucket(this, 'ArtworkBucket', {
       bucketName: `eddi-artwork-${this.account}`,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS,
+      publicReadAccess: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       cors: [
         {
-          allowedOrigins: ['https://eddi.audio', 'http://localhost:5173'],
+          allowedOrigins: ['*'],
           allowedMethods: [s3.HttpMethods.GET],
           allowedHeaders: ['*'],
           maxAge: 86400,
@@ -74,9 +75,9 @@ export class EddiStack extends cdk.Stack {
           command: [
             'bash', '-c',
             [
-              'npm ci --omit=dev',
               'mkdir -p /asset-output/nodejs',
-              'cp -r node_modules /asset-output/nodejs/',
+              'cp /asset-input/package.json /asset-input/package-lock.json /asset-output/nodejs/',
+              'cd /asset-output/nodejs && npm ci --omit=dev --cache /tmp/npm-cache',
             ].join(' && '),
           ],
           environment: {
@@ -186,7 +187,7 @@ export class EddiStack extends cdk.Stack {
       restApiName: 'eddi-api',
       description: 'Eddi card page API',
       defaultCorsPreflightOptions: {
-        allowOrigins: ['https://eddi.audio', 'http://localhost:5173'],
+        allowOrigins: ['https://eddi.audio', 'http://localhost:5173', 'https://eddi.eddi-audio.workers.dev'],
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
         maxAge: cdk.Duration.hours(24),
@@ -223,7 +224,7 @@ export class EddiStack extends cdk.Stack {
       value: api.url,
       description: 'Set as VITE_API_URL in Cloudflare Pages env vars and API_URL in Pages Function env vars',
     })
-    new cdk.CfnOutput(this, 'ArtworkBucket', { value: artworkBucket.bucketName })
-    new cdk.CfnOutput(this, 'OgImageBucket', { value: ogImageBucket.bucketName })
+    new cdk.CfnOutput(this, 'ArtworkBucketName', { value: artworkBucket.bucketName })
+    new cdk.CfnOutput(this, 'OgImageBucketName', { value: ogImageBucket.bucketName })
   }
 }

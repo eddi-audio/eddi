@@ -31,3 +31,6 @@ Thumbs.db
 
 # Cloudflare
 .wrangler/
+
+# Local setup / credentials (never commit)
+SETUP.md

@@ -259,7 +259,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'INVALID_BODY' }) }
   }
 
-  const path = event.requestContext?.http?.path ?? ''
+  const path = (event as unknown as { path?: string }).path ?? event.requestContext?.http?.path ?? ''
 
   if (path.includes('/resolve')) {
     return handleResolve(body as { url?: string })
