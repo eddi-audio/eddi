@@ -9,27 +9,87 @@ type Step = 'paste' | 'preview' | 'write' | 'success' | 'unsupported'
 
 const NFC_SUPPORTED = 'NDEFReader' in window
 
-function UnsupportedState() {
+function detectPlatform(): 'ios' | 'android' | 'desktop' {
+  const ua = navigator.userAgent
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios'
+  if (/android/i.test(ua)) return 'android'
+  return 'desktop'
+}
+
+function AppStoreBadge() {
   return (
-    <div className="min-h-dvh flex flex-col">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-2">
+    <a href="https://apps.apple.com/app/eddi/id0000000000" className="block">
+      <svg viewBox="0 0 120 40" className="h-12 w-auto" xmlns="http://www.w3.org/2000/svg">
+        <rect width="120" height="40" rx="6" fill="black" stroke="white" strokeOpacity="0.3" strokeWidth="1"/>
+        <text x="38" y="13" fontFamily="system-ui" fontSize="8" fill="white" fillOpacity="0.7">Download on the</text>
+        <text x="34" y="27" fontFamily="system-ui" fontSize="14" fontWeight="600" fill="white">App Store</text>
+        <text x="14" y="27" fontFamily="system-ui" fontSize="22" fill="white"></text>
+      </svg>
+    </a>
+  )
+}
+
+function PlayStoreBadge() {
+  return (
+    <a href="https://play.google.com/store/apps/details?id=audio.eddi" className="block">
+      <svg viewBox="0 0 135 40" className="h-12 w-auto" xmlns="http://www.w3.org/2000/svg">
+        <rect width="135" height="40" rx="6" fill="black" stroke="white" strokeOpacity="0.3" strokeWidth="1"/>
+        <text x="38" y="13" fontFamily="system-ui" fontSize="8" fill="white" fillOpacity="0.7">GET IT ON</text>
+        <text x="34" y="27" fontFamily="system-ui" fontSize="14" fontWeight="600" fill="white">Google Play</text>
+        <text x="12" y="28" fontFamily="system-ui" fontSize="20" fill="white">▷</text>
+      </svg>
+    </a>
+  )
+}
+
+function UnsupportedState() {
+  const platform = detectPlatform()
+
+  return (
+    <div className="min-h-dvh flex flex-col bg-[#0a0a0a]">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center gap-5">
+        <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center">
           <svg className="w-8 h-8 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3m-3 3h3m-3 3h.75" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.651a3.75 3.75 0 0 1 0-5.303m5.304 0a3.75 3.75 0 0 1 0 5.303m-7.425 2.122a6.75 6.75 0 0 1 0-9.546m9.546 0a6.75 6.75 0 0 1 0 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.789M12 12h.008v.008H12V12Z" />
           </svg>
         </div>
-        <h1 className="text-xl font-bold text-white">NFC writing requires Chrome on Android</h1>
-        <p className="text-sm text-white/50 max-w-xs leading-relaxed">
-          Web NFC is only available in Chrome 89+ on Android. To write cards on iOS, use the Eddi app.
-        </p>
-        <div className="flex flex-col gap-3 w-full max-w-xs mt-4">
-          <a
-            href="https://eddi.audio/player"
-            className="px-6 py-3 rounded-full bg-white text-black text-sm font-semibold text-center"
-          >
-            Get the Eddi app
-          </a>
-        </div>
+
+        {platform === 'ios' ? (
+          <>
+            <h1 className="text-xl font-bold text-white">Write cards with the Eddi app</h1>
+            <p className="text-sm text-white/50 max-w-xs leading-relaxed">
+              NFC writing isn't available in iOS browsers. Download the Eddi app to write cards directly from your iPhone.
+            </p>
+            <AppStoreBadge />
+          </>
+        ) : platform === 'android' ? (
+          <>
+            <h1 className="text-xl font-bold text-white">Use Chrome to write cards</h1>
+            <p className="text-sm text-white/50 max-w-xs leading-relaxed">
+              NFC writing requires Chrome on Android. Open this page in Chrome, or download the Eddi app.
+            </p>
+            <div className="flex flex-col gap-3 w-full max-w-xs">
+              <a
+                href="googlechrome://navigate?url=https://eddi.audio/write"
+                className="py-3 rounded-2xl bg-white text-black text-sm font-semibold text-center"
+              >
+                Open in Chrome
+              </a>
+              <PlayStoreBadge />
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-xl font-bold text-white">Write cards from your phone</h1>
+            <p className="text-sm text-white/50 max-w-xs leading-relaxed">
+              NFC writing works on Android with Chrome, or use the Eddi app on iOS or Android.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <AppStoreBadge />
+              <PlayStoreBadge />
+            </div>
+          </>
+        )}
       </div>
       <BrandBlock />
     </div>
@@ -265,6 +325,10 @@ export default function WritePage() {
             >
               Write another card
             </button>
+            <div className="pt-4 border-t border-white/10 w-full flex flex-col items-center gap-3">
+              <p className="text-xs text-white/30">Write cards faster with the Eddi app</p>
+              <PlayStoreBadge />
+            </div>
           </div>
         )}
       </div>
