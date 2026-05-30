@@ -24,13 +24,15 @@ for writing cards.
 
 | Path | What |
 |------|------|
-| `packages/web` | The live site (Vite + React 19 + Tailwind v4). Deployed to Cloudflare Workers. |
-| `packages/backend` | AWS CDK — DynamoDB + Lambdas (card lookup/write, event log, OG image). |
-| `packages/app` | **The real** React Native app (RN 0.85.3). Android + iOS native projects inside. |
+| `software/` | The npm monorepo — **run `npm` from here**. Contains everything below. |
+| `software/packages/web` | The live site (Vite + React 19 + Tailwind v4). Deployed to Cloudflare Workers. |
+| `software/packages/backend` | AWS CDK — DynamoDB + Lambdas (card lookup/write, event log, OG image). |
+| `software/packages/app` | **The real** React Native app (RN 0.85.3). Android + iOS native projects inside. |
+| `software/infra/` | Cloudflare deploy: `worker.ts` (OG/Twitter SSR for bots on `/c/{id}`) + `wrangler.toml`. |
 | `device/` | Raspberry Pi firmware / services (was `pi/`). Git-tracked. |
-| `infra/` | Cloudflare deploy: `worker.ts` (OG/Twitter SSR for bots on `/c/{id}`) + `wrangler.toml`. Git-tracked. |
 | `docs/` | This folder. STATUS, RUNBOOK, research notes, `architecture.json`. |
 | `business/` | Legal, research, branding (was `Biz Docs/`). In the folder, **git-ignored**. |
+| `design/` | Visual assets / artwork. In the folder, **git-ignored**. |
 | `hardware/` | CAD, renders, materials. In the folder, **git-ignored**. |
 | `archive/` | Old prototype + old scripts. Reference only, **git-ignored**. Do not build on it. |
 

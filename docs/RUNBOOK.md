@@ -7,43 +7,46 @@ re-debugging anything that feels familiar.**
 For current project state see [STATUS.md](STATUS.md). For local credentials see
 `SETUP.md` (repo root, gitignored).
 
+> **All software lives under `software/`.** Paths below are from the repo root;
+> the npm workspace root is `software/`. From there, `npm run deploy:web` and
+> `npm run deploy:backend` are shortcuts for the web/backend deploys.
+
 ---
 
 ## Common operations
 
-### Web (`packages/web`)
+### Web (`software/packages/web`)
 ```bash
-cd packages/web
+cd software/packages/web
 npm run dev          # local dev server
 npm run build        # production build (reads VITE_API_URL from .env.local)
 ```
-Deploy the site (Cloudflare Workers + Assets) — config lives in `infra/`:
+Deploy the site (Cloudflare Workers + Assets) — config lives in `software/infra/`:
 ```bash
-npm run build --workspace=packages/web   # build first; wrangler uploads packages/web/dist
-cd infra && npx wrangler deploy          # uses infra/wrangler.toml + infra/worker.ts
+cd software && npm run deploy:web        # builds web, then wrangler deploy from infra/
 ```
 
-### Backend (`packages/backend`, AWS CDK)
+### Backend (`software/packages/backend`, AWS CDK)
 SSO creds don't flow through `--profile` for CDK, so export them first:
 ```bash
 aws sso login --profile eddi
 eval $(aws configure export-credentials --profile eddi --format env)
-cd packages/backend
+cd software/packages/backend
 npm run diff         # cdk diff
 npm run deploy       # cdk deploy --require-approval never
 ```
 - Account `733652933079`, region `us-east-1`.
 - Spotify secret lives in SSM: `/eddi/prod/spotify/client_id`, `/eddi/prod/spotify/client_secret`.
 
-### Android app (`packages/app`)
+### Android app (`software/packages/app`)
 Debug build / run on device:
 ```bash
-cd packages/app/android
+cd software/packages/app/android
 ./gradlew :app:installDebug
 ```
 Production-signed release APK (arm64 = the Pixel 8a alpha device):
 ```bash
-cd packages/app/android
+cd software/packages/app/android
 ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
 # output: app/build/outputs/apk/release/app-release.apk
 ```
@@ -56,7 +59,7 @@ APKSIGNER=$(ls $HOME/Library/Android/SDK/build-tools/*/apksigner | tail -1)
 "$APKSIGNER" verify --print-certs path/to/app-release.apk | grep -i SHA-256
 # expect: B7:E7:03:8A:ED:E4:4F:AD:35:85:E6:AD:93:D9:95:93:51:F1:23:BB:E0:60:CC:05:EB:7C:F5:22:CF:28:6D:F4
 ```
-Signing is wired in `packages/app/android/app/build.gradle`: it reads
+Signing is wired in `software/packages/app/android/app/build.gradle`: it reads
 `EDDI_RELEASE_*` from `~/.gradle/gradle.properties` and **falls back to debug
 signing if those props are absent** — so the repo builds for anyone, but only a
 machine with the secret produces a Play-uploadable build.
@@ -80,8 +83,8 @@ a small per-session quota. Android build artifacts (`app/build` ~520MB,
 **Fix:**
 ```bash
 # Delete regenerable Android build artifacts (always safe — they rebuild):
-rm -rf packages/app/android/app/build packages/app/android/app/.cxx \
-       packages/app/android/.gradle packages/app/android/build
+rm -rf software/packages/app/android/app/build software/packages/app/android/app/.cxx \
+       software/packages/app/android/.gradle software/packages/app/android/build
 # Clear assistant tool caches if still tight:
 rm -rf /private/tmp/claude-502/node-compile-cache \
        /private/tmp/claude-502/v8-compile-cache-502 \

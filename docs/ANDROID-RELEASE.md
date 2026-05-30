@@ -36,7 +36,7 @@ is **not** production-ready in several ways:
 ## How to build & verify a release (the prod path)
 
 ```bash
-cd packages/app/android
+cd software/packages/app/android
 ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
 # APK: app/build/outputs/apk/release/app-release.apk
 
@@ -71,7 +71,7 @@ an adaptive icon (foreground + background) generated into all densities.
 (integer, +1) every Play upload; set `versionName` to the human version.
 
 ### #10 API URL is hardcoded
-`packages/app/src/api/cards.ts` hardcodes
+`software/packages/app/src/api/cards.ts` hardcodes
 `https://4p46ddsze9.execute-api.us-east-1.amazonaws.com/prod`. Works, but tied to
 the raw API Gateway URL. When `api.eddi.audio` exists (see STATUS), switch to it.
 Consider a build-time config (debug vs release base URL) rather than a constant.
