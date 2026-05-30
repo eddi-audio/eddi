@@ -8,3 +8,7 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# react-native-nfc-manager — native module reached via the RN bridge; ships no
+# consumer rules, so keep its classes to avoid R8 stripping under release builds.
+-keep class community.revteltech.nfc.** { *; }

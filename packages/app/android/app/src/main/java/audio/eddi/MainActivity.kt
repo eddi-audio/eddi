@@ -1,4 +1,4 @@
-package com.eddiapp
+package audio.eddi
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

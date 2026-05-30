@@ -8,14 +8,11 @@ apply plugin: "com.facebook.react"
  */
 react {
     /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
+    // Monorepo: package.json is in packages/app, node_modules hoisted to repo root
+    root = file("../../")
+    reactNativeDir = file("../../../../node_modules/react-native")
+    codegenDir = file("../../../../node_modules/@react-native/codegen")
+    cliFile = file("../../../../node_modules/react-native/cli.js")
 
     /* Variants */
     //   The list of variants to that are debuggable. For those we're going to
@@ -44,6 +41,11 @@ react {
     // extraPackagerArgs = []
 
     /* Hermes Commands */
+    //   RN 0.85 moved the Hermes compiler into the standalone `hermes-compiler`
+    //   package; in this hoisted monorepo it lives at the repo-root node_modules,
+    //   not the plugin's default react-native/sdks/hermesc path. %OS-BIN% is
+    //   substituted by the plugin (osx-bin / linux64-bin / win64-bin).
+    hermesCommand = file("../../../../node_modules/hermes-compiler/hermesc/%OS-BIN%/hermesc").toString()
     //   The hermes compiler command to run. By default it is 'hermesc'
     // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
     //
@@ -57,7 +59,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -77,9 +79,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.eddiapp"
+    namespace "audio.eddi"
     defaultConfig {
-        applicationId "com.eddiapp"
+        applicationId "audio.eddi"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -92,16 +94,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Production signing. Credentials live in ~/.gradle/gradle.properties
+        // (EDDI_RELEASE_*), never in the repo. Falls back to debug signing when
+        // those properties are absent so the project still builds without the secret.
+        release {
+            if (project.hasProperty('EDDI_RELEASE_STORE_FILE')) {
+                storeFile file(EDDI_RELEASE_STORE_FILE)
+                storePassword EDDI_RELEASE_STORE_PASSWORD
+                keyAlias EDDI_RELEASE_KEY_ALIAS
+                keyPassword EDDI_RELEASE_KEY_PASSWORD
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig project.hasProperty('EDDI_RELEASE_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
