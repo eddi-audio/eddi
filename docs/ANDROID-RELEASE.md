@@ -26,7 +26,7 @@ is **not** production-ready in several ways:
 | 4 | NFC proguard keep rule | ✅ done |
 | 5 | applicationId `audio.eddi` | ✅ done |
 | 6 | JS bundled into release APK (not Metro) | ✅ automatic in `assembleRelease` |
-| 7 | App display name (currently shows "EddiApp") | ⬜ set to "Eddi" |
+| 7 | App display name → "Eddi" | ✅ done |
 | 8 | Custom launcher icon (currently stock RN icon) | ⬜ design + add adaptive icon |
 | 9 | versionCode / versionName bump per release | ⬜ bump from 1 / "1.0" |
 | 10 | API base URL — config vs hardcoded | ⚠️ hardcoded raw execute-api URL |
@@ -56,10 +56,12 @@ For Google Play, ship an **AAB** instead and don't restrict architectures:
 
 ## The specific gaps to close (details)
 
-### #7 App display name
-`software/packages/app/android/app/src/main/res/values/strings.xml` has
-`<string name="app_name">EddiApp</string>`. Change to `Eddi`. (`app.json`
-already has `displayName: "Eddi"`, but Android reads the strings.xml value.)
+### #7 App display name ✅
+`software/packages/app/android/app/src/main/res/values/strings.xml` now sets
+`app_name` to `Eddi`, so the home-screen label reads **Eddi**. Note: the
+JS-registered component name (`app.json` `name` ↔ `index.js` `registerComponent`
+↔ MainActivity `getMainComponentName`) stays `"EddiApp"` — those three must match
+each other and are internal, not user-visible. Don't change them casually.
 
 ### #8 Launcher icon
 Still the stock RN icon (`ic_launcher.png` / `ic_launcher_round.png` across

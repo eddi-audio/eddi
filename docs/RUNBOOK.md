@@ -94,6 +94,23 @@ df -h /private/tmp   # confirm space recovered
 **Prevent:** these dirs are now git-ignored. If it keeps happening, set
 `CLAUDE_CODE_TMPDIR` to a roomier path.
 
+### 🔴 Source file corrupted with a line repeated thousands of times
+**Symptom:** a source file (seen once on `MainActivity.kt`) has a single line —
+e.g. `import com.facebook.react.ReactActivityDelegate` — duplicated thousands of
+times, ballooning it to ~17000 lines. Won't compile. Caused by an editor/process
+killed mid-write during the full-disk crash above.
+
+**Detect** (scan tracked source for any non-blank line repeating >15×):
+```bash
+for f in $(git ls-files '*.kt' '*.ts' '*.tsx' '*.js'); do
+  top=$(grep '[^[:space:]]' "$f" | sort | uniq -c | sort -rn | head -1 | awk '{print $1}')
+  [ "${top:-0}" -gt 15 ] && echo "⚠️ $f line repeats ${top}x"
+done
+```
+**Fix:** restore the clean version from the last good commit, e.g.
+`git show <good-commit>:<path> > <path>` then re-apply any intended edits.
+`MainActivity.kt` was recovered from `47ad079` in commit `4f9c200`.
+
 ### 🔴 RN app: "Incompatible React versions" / "Invalid hook call" / "useEffect of null"
 **Cause:** `react`/`react-dom` not pinned to the EXACT version React Native was
 built against (currently **19.2.3** for RN 0.85.3). A caret that floats, or a
