@@ -56,8 +56,11 @@ packages/app/android/local.properties
 playwright.config.ts
 .claude/settings.local.json
 
-# Business docs, legal, hardware, old prototype (local only)
-Biz Docs/
-hardware/
-Archive/
-app/
+# Non-code material — lives in the eddi folder but NOT tracked in git
+/business/
+/hardware/
+/archive/
+/design/
+
+# Claude Code local/runtime files
+.claude/
