@@ -130,30 +130,55 @@ async function fetchSpotifyMeta(token: string, type: SpotifyItemType, id: string
 
 // ── Artwork palette extraction ────────────────────────────────────────────────
 
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const rn = r / 255, gn = g / 255, bn = b / 255
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn)
+  const l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h = 0
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6
+  else if (max === gn) h = ((bn - rn) / d + 2) / 6
+  else h = ((rn - gn) / d + 4) / 6
+  return [h, s, l]
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  const hue = (t: number): number => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 0.5) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const r = Math.round(hue(h + 1 / 3) * 255)
+  const g = Math.round(hue(h) * 255)
+  const b = Math.round(hue(h - 1 / 3) * 255)
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
 async function extractPalette(imageBuffer: Buffer): Promise<{ background: string; primary: string; secondary: string }> {
-  // Sample 3 regions: dominant (full image → 1px), edge (corners), midpoint
-  const [dominant, topLeft, bottomRight] = await Promise.all([
-    sharp(imageBuffer).resize(1, 1, { fit: 'cover' }).raw().toBuffer(),
-    sharp(imageBuffer).extract({ left: 0, top: 0, width: 50, height: 50 }).resize(1, 1).raw().toBuffer(),
-    sharp(imageBuffer).extract({ left: -50, top: -50, width: 50, height: 50 }).resize(1, 1).raw().toBuffer().catch(() => Buffer.from([20, 20, 20])),
-  ])
+  const pixel = await sharp(imageBuffer)
+    .resize(1, 1, { fit: 'cover' })
+    .removeAlpha()
+    .raw()
+    .toBuffer()
 
-  function toHex(buf: Buffer): string {
-    const r = buf[0] ?? 20
-    const g = buf[1] ?? 20
-    const b = buf[2] ?? 20
-    // Darken by 40% for background use
-    return `#${Math.floor(r * 0.4).toString(16).padStart(2, '0')}${Math.floor(g * 0.4).toString(16).padStart(2, '0')}${Math.floor(b * 0.4).toString(16).padStart(2, '0')}`
-  }
+  const r = pixel[0] ?? 0
+  const g = pixel[1] ?? 0
+  const b = pixel[2] ?? 0
+  console.log(`Palette source RGB: ${r},${g},${b}`)
 
-  function toHexBright(buf: Buffer): string {
-    return `#${(buf[0] ?? 200).toString(16).padStart(2, '0')}${(buf[1] ?? 200).toString(16).padStart(2, '0')}${(buf[2] ?? 200).toString(16).padStart(2, '0')}`
-  }
+  const [h, s] = rgbToHsl(r, g, b)
 
   return {
-    background: toHex(dominant),
-    primary: toHexBright(topLeft),
-    secondary: toHexBright(bottomRight),
+    background: hslToHex(h, Math.min(1, s * 1.3), 0.12),
+    primary:    hslToHex(h, Math.min(1, s * 1.2), 0.75),
+    secondary:  hslToHex(h, Math.min(1, s * 0.8), 0.45),
   }
 }
 
@@ -223,8 +248,10 @@ async function handleCreateCard(body: {
       artworkS3Url = `https://${ARTWORK_BUCKET}.s3.amazonaws.com/${artKey}`
       palette = await extractPalette(artBuffer)
     }
-  } catch {
-    // Fall through: use original URL and default palette
+  } catch (e) {
+    console.error('Artwork/palette error:', e)
+    // TODO: once branding is finalized, design a proper default background/palette
+    // to use here instead of the plain dark fallback
   }
 
   const now = new Date().toISOString()
