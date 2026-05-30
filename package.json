@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=packages/web",
     "build": "npm run build --workspace=packages/web",
+    "deploy:web": "npm run build --workspace=packages/web && cd infra && npx wrangler deploy",
     "deploy:backend": "npm run deploy --workspace=packages/backend"
   }
 }

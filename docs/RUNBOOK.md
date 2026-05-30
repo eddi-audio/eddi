@@ -17,9 +17,10 @@ cd packages/web
 npm run dev          # local dev server
 npm run build        # production build (reads VITE_API_URL from .env.local)
 ```
-Deploy the site (Cloudflare Workers + Assets):
+Deploy the site (Cloudflare Workers + Assets) — config lives in `infra/`:
 ```bash
-wrangler deploy      # from repo root; uses wrangler.toml + worker.ts
+npm run build --workspace=packages/web   # build first; wrangler uploads packages/web/dist
+cd infra && npx wrangler deploy          # uses infra/wrangler.toml + infra/worker.ts
 ```
 
 ### Backend (`packages/backend`, AWS CDK)

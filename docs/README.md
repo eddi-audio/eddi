@@ -27,10 +27,12 @@ for writing cards.
 | `packages/web` | The live site (Vite + React 19 + Tailwind v4). Deployed to Cloudflare Workers. |
 | `packages/backend` | AWS CDK — DynamoDB + Lambdas (card lookup/write, event log, OG image). |
 | `packages/app` | **The real** React Native app (RN 0.85.3). Android + iOS native projects inside. |
-| `worker.ts` / `wrangler.toml` | Cloudflare Worker doing OG/Twitter SSR for bots on `/c/{id}`. |
-| `docs/` | This folder. STATUS, RUNBOOK, and research notes. |
-| `app/` (repo root) | ⚠️ **OLD prototype.** Git-ignored, kept as reference. Do not build on it. |
-| `hardware/`, `pi/`, `Biz Docs/`, `Archive/` | Non-code material. Git-ignored / local. |
+| `device/` | Raspberry Pi firmware / services (was `pi/`). Git-tracked. |
+| `infra/` | Cloudflare deploy: `worker.ts` (OG/Twitter SSR for bots on `/c/{id}`) + `wrangler.toml`. Git-tracked. |
+| `docs/` | This folder. STATUS, RUNBOOK, research notes, `architecture.json`. |
+| `business/` | Legal, research, branding (was `Biz Docs/`). In the folder, **git-ignored**. |
+| `hardware/` | CAD, renders, materials. In the folder, **git-ignored**. |
+| `archive/` | Old prototype + old scripts. Reference only, **git-ignored**. Do not build on it. |
 
 ## Research notes (background, not state)
 
