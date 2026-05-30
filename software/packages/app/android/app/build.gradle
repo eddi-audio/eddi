@@ -87,6 +87,17 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    // Production signing secrets live in software/secrets/ (gitignored): the
+    // keystore + signing.properties are kept in-project so they're discoverable
+    // for backup, but never committed. Falls back to debug signing if absent so
+    // the project still builds for anyone without the secret.
+    def eddiSecretsDir = file('../../../../secrets')
+    def eddiSigningFile = new File(eddiSecretsDir, 'signing.properties')
+    def eddiSigningProps = new Properties()
+    if (eddiSigningFile.exists()) {
+        eddiSigningFile.withInputStream { eddiSigningProps.load(it) }
+    }
+
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -94,15 +105,12 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // Production signing. Credentials live in ~/.gradle/gradle.properties
-        // (EDDI_RELEASE_*), never in the repo. Falls back to debug signing when
-        // those properties are absent so the project still builds without the secret.
         release {
-            if (project.hasProperty('EDDI_RELEASE_STORE_FILE')) {
-                storeFile file(EDDI_RELEASE_STORE_FILE)
-                storePassword EDDI_RELEASE_STORE_PASSWORD
-                keyAlias EDDI_RELEASE_KEY_ALIAS
-                keyPassword EDDI_RELEASE_KEY_PASSWORD
+            if (eddiSigningFile.exists()) {
+                storeFile new File(eddiSecretsDir, eddiSigningProps['EDDI_RELEASE_STORE_FILE'])
+                storePassword eddiSigningProps['EDDI_RELEASE_STORE_PASSWORD']
+                keyAlias eddiSigningProps['EDDI_RELEASE_KEY_ALIAS']
+                keyPassword eddiSigningProps['EDDI_RELEASE_KEY_PASSWORD']
             }
         }
     }
@@ -111,7 +119,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig project.hasProperty('EDDI_RELEASE_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
+            signingConfig eddiSigningFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

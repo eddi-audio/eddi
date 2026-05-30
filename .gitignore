@@ -45,6 +45,11 @@ SETUP.md
 *.keystore
 *.jks
 
+# Signing secrets — kept in-project (software/secrets/) for discoverability and
+# backup, but NEVER committed. Only the README breadcrumb is tracked.
+/software/secrets/*
+!/software/secrets/README.md
+
 # Android build artifacts
 software/packages/app/android/.gradle/
 software/packages/app/android/build/
