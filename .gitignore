@@ -1,3 +1,12 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
 # Dependencies
 node_modules/
 
@@ -5,20 +14,16 @@ node_modules/
 dist/
 .next/
 out/
-cdk.out/
 *.js.map
 
 # CDK
 cdk.context.json
+packages/backend/cdk.out/
 
 # Environment
 .env
 .env.local
 .env.*.local
-
-# Logs
-*.log
-npm-debug.log*
 
 # OS
 .DS_Store
@@ -29,14 +34,30 @@ Thumbs.db
 .idea/
 *.swp
 
-# Cloudflare
+# Cloudflare / Wrangler
 .wrangler/
+
+# Screenshots (local review only)
+.screenshots/
 
 # Local setup / credentials (never commit)
 SETUP.md
+*.keystore
+*.jks
 
-# Business docs, legal, hardware (local only)
+# Android build artifacts
+packages/app/android/.gradle/
+packages/app/android/build/
+packages/app/android/app/build/
+packages/app/android/app/.cxx/
+packages/app/android/local.properties
+
+# Tooling / local config
+playwright.config.ts
+.claude/settings.local.json
+
+# Business docs, legal, hardware, old prototype (local only)
 Biz Docs/
 hardware/
 Archive/
-app/web/email-signup-pre-release
+app/
