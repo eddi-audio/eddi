@@ -27,11 +27,12 @@ is **not** production-ready in several ways:
 | 5 | applicationId `audio.eddi` | ✅ done |
 | 6 | JS bundled into release APK (not Metro) | ✅ automatic in `assembleRelease` |
 | 7 | App display name → "Eddi" | ✅ done |
-| 8 | Custom launcher icon (currently stock RN icon) | ⬜ design + add adaptive icon |
-| 9 | versionCode / versionName bump per release | ⬜ bump from 1 / "1.0" |
-| 10 | API base URL — config vs hardcoded | ⚠️ hardcoded raw execute-api URL |
-| 11 | Test the **release** build on the Pixel (not just debug) | ⬜ do this |
+| 8 | Custom launcher icon | ✅ adaptive icon (E mark + #25243F navy), all densities + anydpi-v26 |
+| 9 | versionCode / versionName bump per release | ✅ now 2 / "1.0.1" (bump each release) |
+| 10 | API base URL — config vs hardcoded | ✅ centralized in `src/config.ts` (API_BASE + WEB_ORIGIN) |
+| 11 | Test the **release** build on the Pixel (not just debug) | ✅ installs, launches, runs (no Metro) |
 | 12 | Google Play listing + upload (AAB) | ⬜ when ready to ship |
+| 13 | screens-restore crash fix (`MainActivity.onCreate(null)`) | ✅ done |
 
 ## How to build & verify a release (the prod path)
 
