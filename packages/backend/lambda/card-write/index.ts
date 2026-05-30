@@ -174,11 +174,13 @@ async function extractPalette(imageBuffer: Buffer): Promise<{ background: string
   console.log(`Palette source RGB: ${r},${g},${b}`)
 
   const [h, s] = rgbToHsl(r, g, b)
+  // Force minimum saturation so even grey/dark covers get a visible tint
+  const sBoosted = Math.max(0.25, Math.min(1, s * 2.5))
 
   return {
-    background: hslToHex(h, Math.min(1, s * 1.3), 0.12),
-    primary:    hslToHex(h, Math.min(1, s * 1.2), 0.75),
-    secondary:  hslToHex(h, Math.min(1, s * 0.8), 0.45),
+    background: hslToHex(h, sBoosted, 0.22),
+    primary:    hslToHex(h, Math.min(1, s * 1.2), 0.80),
+    secondary:  hslToHex(h, Math.min(1, s * 0.9), 0.50),
   }
 }
 
