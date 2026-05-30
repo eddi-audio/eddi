@@ -31,9 +31,11 @@ dev defaults. See `docs/ANDROID-RELEASE.md` for the dev→prod checklist.
 ## Project facts
 
 - **Real code is in `packages/`**: `web` (live site, Cloudflare Workers),
-  `backend` (AWS CDK), `app` (React Native 0.85.3).
-- **`app/` at the repo root is an OLD prototype** — git-ignored, reference only.
-  The real app is `packages/app`.
+  `backend` (AWS CDK), `app` (React Native 0.85.3). Also tracked: `device/`
+  (RPi firmware), `infra/` (Cloudflare `worker.ts` + `wrangler.toml`), `docs/`.
+- **Non-code material is in the folder but git-ignored:** `business/`
+  (legal/research/branding), `hardware/` (CAD/renders), `archive/` (old
+  prototype + scripts — do not build on it; the real app is `packages/app`).
 - **App identity `audio.eddi`** is the Android package name (reverse-DNS), NOT a
   domain. The domain is `eddi.audio`.
 - **Credentials/setup** live in `SETUP.md` (repo root, gitignored). ⚠️ It
