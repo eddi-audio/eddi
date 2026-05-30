@@ -1,6 +1,7 @@
 import { Platform } from 'react-native'
 import NfcManager, { NfcTech, Ndef, NfcError } from 'react-native-nfc-manager'
 import type { TagEvent, NdefRecord } from 'react-native-nfc-manager'
+import { WEB_ORIGIN } from '../config'
 
 // Call once at app startup
 export async function initNfc(): Promise<boolean> {
@@ -43,7 +44,7 @@ export async function readEddiCard(): Promise<string[]> {
 // Handles both pre-formatted (NDEF) and blank (NdefFormatable) tags
 export async function writeEddiCard(cardId: string, serviceUris: Record<string, string>): Promise<void> {
   const records = [
-    Ndef.uriRecord(`https://eddi.audio/c/${cardId}`),
+    Ndef.uriRecord(`${WEB_ORIGIN}/c/${cardId}`),
     serviceUris.spotify       ? Ndef.uriRecord(serviceUris.spotify)       : null,
     serviceUris.apple_music   ? Ndef.uriRecord(serviceUris.apple_music)   : null,
     serviceUris.tidal         ? Ndef.uriRecord(serviceUris.tidal)         : null,

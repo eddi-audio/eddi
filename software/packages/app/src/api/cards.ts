@@ -1,6 +1,5 @@
 import type { Card, ResolveResult, ServiceKey } from '../types/card'
-
-const API_BASE = 'https://4p46ddsze9.execute-api.us-east-1.amazonaws.com/prod'
+import { API_BASE } from '../config'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

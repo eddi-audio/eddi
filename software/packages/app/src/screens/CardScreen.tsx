@@ -48,7 +48,7 @@ export default function CardScreen({ route, navigation }: Props) {
   }
 
   const handleShare = async () => {
-    await Share.share({ url: `https://eddi.audio/c/${id}`, message: card?.title ?? '' })
+    await Share.share({ url: `${WEB_ORIGIN}/c/${id}`, message: card?.title ?? '' })
   }
 
   if (isLoading) {
