@@ -57,7 +57,7 @@ For Google Play, ship an **AAB** instead and don't restrict architectures:
 ## The specific gaps to close (details)
 
 ### #7 App display name
-`android/app/src/main/res/values/strings.xml` has
+`software/packages/app/android/app/src/main/res/values/strings.xml` has
 `<string name="app_name">EddiApp</string>`. Change to `Eddi`. (`app.json`
 already has `displayName: "Eddi"`, but Android reads the strings.xml value.)
 
@@ -67,7 +67,7 @@ Still the stock RN icon (`ic_launcher.png` / `ic_launcher_round.png` across
 an adaptive icon (foreground + background) generated into all densities.
 
 ### #9 Versioning
-`versionCode 1`, `versionName "1.0"` in `app/build.gradle`. Bump `versionCode`
+`versionCode 1`, `versionName "1.0"` in `software/packages/app/android/app/build.gradle`. Bump `versionCode`
 (integer, +1) every Play upload; set `versionName` to the human version.
 
 ### #10 API URL is hardcoded

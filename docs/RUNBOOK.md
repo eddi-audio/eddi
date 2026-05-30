@@ -113,7 +113,7 @@ Fixed in commit `47ad079`.
 **Cause:** This is a monorepo with `node_modules` hoisted to the repo root, but
 the RN gradle scaffold assumes `node_modules` is one level up from `android/`.
 
-**Fix (already applied):** `packages/app/android/app/build.gradle` sets `root`,
+**Fix (already applied):** `software/packages/app/android/app/build.gradle` sets `root`,
 `reactNativeDir`, `codegenDir`, `cliFile`, and `hermesCommand` to
 `../../../../node_modules/...`, and `settings.gradle` points the gradle-plugin
 `includeBuild` at `../../../node_modules/...`. Also the gradle wrapper is pinned
@@ -124,7 +124,7 @@ Fixed in commit `75543a5`.
 **Cause:** R8 minification strips `react-native-nfc-manager`'s native classes
 (it ships no consumer proguard rules).
 
-**Fix (already applied):** keep rule in `packages/app/android/app/proguard-rules.pro`:
+**Fix (already applied):** keep rule in `software/packages/app/android/app/proguard-rules.pro`:
 ```
 -keep class community.revteltech.nfc.** { *; }
 ```

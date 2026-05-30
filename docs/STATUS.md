@@ -47,7 +47,7 @@ Committed on branch `fix/rn-react-dedupe-and-nfc-write`:
 
 **Build command:**
 ```
-cd packages/app/android
+cd software/packages/app/android
 ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
 ```
 (arm64 = the Pixel 8a alpha device; drop the flag or build an AAB for Play.)
@@ -76,10 +76,15 @@ Single deduped `react` 19.2.3 under `node_modules/` (matches react-native
 
 ## Repo layout
 
-- **Real code lives in `packages/`** — `app/` (RN 0.85.3), `web/`, `backend/` (CDK).
-- **`app/` at repo root is the OLD prototype** — now git-ignored, kept on disk as
-  reference. Do not build on it.
-- Android build artifacts (`.gradle/`, `build/`, `app/build/`, `.cxx/`,
-  `local.properties`) and `cdk.out/` are git-ignored.
-- `worker.ts` + `wrangler.toml` at repo root are the live OG-SSR Cloudflare
-  deployment.
+One discipline per top-level dir:
+
+- **`software/`** — the npm monorepo (run `npm` from here): `packages/`
+  (`app` RN 0.85.3, `web`, `backend` CDK), `infra/` (Cloudflare `worker.ts` +
+  `wrangler.toml`), `node_modules/`, `package.json`, lockfile.
+- **`device/`** — RPi firmware (was `pi/`). Tracked.
+- **`docs/`** — docs + `architecture.json`. Tracked.
+- **Git-ignored, on disk only:** `business/` (legal/research/branding),
+  `design/` (artwork), `hardware/` (CAD/renders), `archive/` (old prototype +
+  scripts — do not build on it).
+- The live OG-SSR Cloudflare deploy is in `software/infra/`; deploy with
+  `cd software && npm run deploy:web`.

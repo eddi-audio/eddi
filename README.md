@@ -12,11 +12,15 @@ album when tapped.
   every tricky problem we've hit (including the "session keeps crashing" one).
 - **`SETUP.md`** (gitignored) — local credentials & machine setup.
 
-## Monorepo layout
+## Folder layout
 
-- `packages/web` — the live site (Cloudflare Workers).
-- `packages/backend` — AWS CDK (DynamoDB + Lambdas).
-- `packages/app` — the React Native app.
+One discipline per top-level dir:
 
-> Heads up: `app/` at the repo root is an **old prototype** (git-ignored). The
-> real app is `packages/app`.
+- `software/` — **all code** (run `npm` from here): `packages/web` (live site),
+  `packages/backend` (AWS CDK), `packages/app` (React Native), `infra/`
+  (Cloudflare deploy).
+- `device/` — Raspberry Pi firmware.
+- `docs/` — STATUS, RUNBOOK, research, architecture.
+- `business/`, `design/`, `hardware/`, `archive/` — non-code material, kept in
+  the folder but **git-ignored**. (`archive/` holds the old prototype — don't
+  build on it; the real app is `software/packages/app`.)
