@@ -10,22 +10,24 @@
     "destroy": "cdk destroy"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.180.0",
-    "constructs": "^10.4.2",
     "@aws-sdk/client-dynamodb": "^3.798.0",
-    "@aws-sdk/lib-dynamodb": "^3.798.0",
     "@aws-sdk/client-s3": "^3.798.0",
     "@aws-sdk/client-ssm": "^3.798.0",
+    "@aws-sdk/lib-dynamodb": "^3.798.0",
+    "aws-cdk-lib": "^2.180.0",
+    "constructs": "^10.4.2",
     "nanoid": "^5.1.5"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
     "@types/aws-lambda": "^8.10.149",
-    "typescript": "~5.8.3",
-    "ts-node": "^10.9.2",
+    "@types/node": "^22.15.0",
+    "@types/sharp": "^0.31.1",
     "aws-cdk": "^2.180.0",
     "esbuild": "^0.25.4",
-    "source-map-support": "^0.5.21"
+    "sharp": "^0.34.5",
+    "source-map-support": "^0.5.21",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.8.3"
   },
   "peerDependencies": {
     "aws-cdk-lib": "^2.180.0",
