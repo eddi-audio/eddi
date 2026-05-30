@@ -8,6 +8,9 @@ oriented fast, read in this order:
 2. **[RUNBOOK.md](RUNBOOK.md)** — how to build/deploy/run, and a catalog of every
    gnarly problem we've already hit and how we fixed it. Check here *before*
    re-debugging anything that feels familiar.
+   - **[ANDROID-RELEASE.md](ANDROID-RELEASE.md)** — the dev→production checklist
+     for the Android app (what's left between the debug build on the Pixel and a
+     Play-ready release).
 3. **`SETUP.md`** (repo root, **gitignored**) — local credentials & machine
    setup (AWS profile, keystore paths, Cloudflare). Not in git on purpose.
 
