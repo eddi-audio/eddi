@@ -1,0 +1,16 @@
+[Unit]
+Description=Eddi Setup Server
+After=network.target avahi-daemon.service
+
+[Service]
+ExecStart=/usr/bin/node /home/pi/eddi/pi/server.js
+WorkingDirectory=/home/pi/eddi
+Restart=always
+RestartSec=5
+User=root
+Environment=NODE_ENV=production
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
