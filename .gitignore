@@ -18,7 +18,7 @@ out/
 
 # CDK
 cdk.context.json
-packages/backend/cdk.out/
+software/packages/backend/cdk.out/
 
 # Environment
 .env
@@ -46,11 +46,11 @@ SETUP.md
 *.jks
 
 # Android build artifacts
-packages/app/android/.gradle/
-packages/app/android/build/
-packages/app/android/app/build/
-packages/app/android/app/.cxx/
-packages/app/android/local.properties
+software/packages/app/android/.gradle/
+software/packages/app/android/build/
+software/packages/app/android/app/build/
+software/packages/app/android/app/.cxx/
+software/packages/app/android/local.properties
 
 # Tooling / local config
 playwright.config.ts
