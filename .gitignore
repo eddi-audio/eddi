@@ -67,5 +67,18 @@ playwright.config.ts
 /archive/
 /design/
 
+# Spec/research docs — source of truth is the Notion workspace (Artifacts DB).
+# Kept on disk locally but not tracked in git. Operational docs (STATUS,
+# RUNBOOK, README, ANDROID-RELEASE) STAY tracked — CLAUDE.md + a fresh clone
+# rely on them for orientation.
+/docs/architecture-system.md
+/docs/architecture-handoff.md
+/docs/SAVE-TO-LIBRARY.md
+/docs/CROSS-SERVICE-GRAPH.md
+/docs/resolver-research.md
+/docs/nfc-native-research.md
+/docs/app-integration-research.md
+/docs/architecture.json
+
 # Claude Code local/runtime files
 .claude/
