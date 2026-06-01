@@ -148,6 +148,10 @@ export class EddiStack extends cdk.Stack {
         ISRC_CACHE_TABLE: isrcCacheTable.tableName,
         SPOTIFY_CLIENT_ID_PARAM: '/eddi/prod/spotify/client_id',
         SPOTIFY_CLIENT_SECRET_PARAM: '/eddi/prod/spotify/client_secret',
+        // Tidal cross-service resolver. Presence of these params auto-registers
+        // the Tidal resolver (see shared/resolver/index.ts ensureRegistered).
+        TIDAL_CLIENT_ID_PARAM: '/eddi/prod/tidal/client_id',
+        TIDAL_CLIENT_SECRET_PARAM: '/eddi/prod/tidal/client_secret',
       },
     })
 
@@ -177,6 +181,12 @@ export class EddiStack extends cdk.Stack {
     }).grantRead(cardWriteFn)
     ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientSecret', {
       parameterName: '/eddi/prod/spotify/client_secret',
+    }).grantRead(cardWriteFn)
+    ssm.StringParameter.fromSecureStringParameterAttributes(this, 'TidalClientId', {
+      parameterName: '/eddi/prod/tidal/client_id',
+    }).grantRead(cardWriteFn)
+    ssm.StringParameter.fromSecureStringParameterAttributes(this, 'TidalClientSecret', {
+      parameterName: '/eddi/prod/tidal/client_secret',
     }).grantRead(cardWriteFn)
 
     cardsTable.grantReadData(ogImageFn)

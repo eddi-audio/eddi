@@ -5,6 +5,7 @@ import {
   getTrackIdentity, getAlbumIdentity, getPlaylistTracks,
   type SpotifySourceType,
 } from './spotify-source'
+import { TidalResolver } from './tidal'
 
 /**
  * Cross-service resolver orchestrator (architecture §2.6).
@@ -21,12 +22,23 @@ import {
  * superset of today's behavior.
  */
 
-const targetResolvers: ServiceResolver[] = [
-  // Register here, e.g.: new AppleMusicResolver(), new TidalResolver()
-]
+const targetResolvers: ServiceResolver[] = []
 
 export function registerResolver(r: ServiceResolver): void {
   targetResolvers.push(r)
+}
+
+// Auto-register resolvers whose credentials are configured. Gated by env so the
+// pipeline stays a safe Spotify-only no-op wherever a service isn't set up.
+// Apple Music / YouTube Music register here as they land.
+let registered = false
+function ensureRegistered(): void {
+  if (registered) return
+  registered = true
+  // Tidal: present whenever its SSM params are wired (env points at them).
+  if (process.env.TIDAL_CLIENT_ID_PARAM || process.env.TIDAL_ENABLED === '1') {
+    targetResolvers.push(new TidalResolver())
+  }
 }
 
 interface ResolveInput {
@@ -47,6 +59,7 @@ export interface ResolveOutput extends ResolutionResult {
 }
 
 export async function resolveAllServices(input: ResolveInput): Promise<ResolveOutput> {
+  ensureRegistered()
   const { token, type, id, spotifyUrl } = input
   const service_uris: Partial<Record<ServiceKey, string>> = { spotify: spotifyUrl }
   const match_counts: ResolutionResult['match_counts'] = {}
