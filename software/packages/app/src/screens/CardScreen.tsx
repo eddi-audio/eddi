@@ -44,7 +44,9 @@ export default function CardScreen({ route, navigation }: Props) {
 
   const handleServicePress = async (key: ServiceKey, url: string) => {
     setPreference(key)
-    logEvent(id, 'service_open', key).catch(() => {})
+    // Stamp the card's cross-service key (ISRC/UPC) so this play rolls up by
+    // recording, not just by card.
+    logEvent(id, 'service_open', key, card?.isrc ?? card?.upc).catch(() => {})
     await Linking.openURL(url)
   }
 

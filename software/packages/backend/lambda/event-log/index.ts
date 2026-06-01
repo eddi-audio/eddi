@@ -11,7 +11,21 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const cardId = event.pathParameters?.id
   if (!cardId) return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'MISSING_ID' }) }
 
-  let body: { event_type?: string; service_selected?: string; referrer?: string } = {}
+  // event_type taxonomy (reserved; not all emitted yet):
+  //   card_open      — card page loaded
+  //   service_open   — user tapped a service CTA to play (service_selected set)
+  //   library_save   — user saved the playlist into their own account
+  //                    (service_selected = target service) [save-to-library feature]
+  //   device_play    — the Eddi device resolved/played the card
+  // `content_key` (the card's ISRC/UPC) is stamped on each event so engagement
+  // rolls up BOTH ways: by card_id (this object) and by recording (cross-service
+  // graph — "this song is big on Apple AND Spotify"). See docs.
+  let body: {
+    event_type?: string
+    service_selected?: string
+    referrer?: string
+    content_key?: string
+  } = {}
   try {
     body = event.body ? JSON.parse(event.body) : {}
   } catch {
@@ -28,6 +42,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       ts_event_id: `${ts}#${body.event_type ?? 'unknown'}`,
       event_type: body.event_type ?? 'unknown',
       service_selected: body.service_selected,
+      // Universal cross-service key for this card (ISRC/UPC) — enables
+      // by-recording aggregation, not just by-card. Optional; absent for cards
+      // written before the resolver populated it.
+      ...(body.content_key ? { content_key: body.content_key } : {}),
       referrer: body.referrer ?? event.requestContext?.http?.userAgent,
       user_agent: event.requestContext?.http?.userAgent,
       ttl,

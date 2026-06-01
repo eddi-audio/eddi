@@ -21,6 +21,9 @@ export interface Card {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  /** Universal cross-service keys (track ISRC / album UPC). */
+  isrc?: string
+  upc?: string
   /** Original creator on the source service (e.g. Spotify playlist owner). */
   source_attribution?: string
   /** Per-service best-effort match counts for playlists. */
@@ -38,6 +41,9 @@ export interface ResolveResult {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  /** Universal cross-service keys, carried through to the created card. */
+  isrc?: string
+  upc?: string
   /** Spotify playlist owner, carried through to the created card. */
   attribution?: string
   /** Per-service playlist match counts, carried through to the created card. */

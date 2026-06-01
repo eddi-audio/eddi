@@ -28,8 +28,18 @@ export const createCard = (data: ResolveResult & { display_name?: string }): Pro
     body: JSON.stringify(data),
   })
 
-export const logEvent = (cardId: string, eventType: string, service?: ServiceKey): Promise<void> =>
+export const logEvent = (
+  cardId: string,
+  eventType: string,
+  service?: ServiceKey,
+  contentKey?: string,
+): Promise<void> =>
   apiFetch(`/cards/${cardId}/events`, {
     method: 'POST',
-    body: JSON.stringify({ event_type: eventType, service_selected: service }),
+    body: JSON.stringify({
+      event_type: eventType,
+      service_selected: service,
+      // Universal cross-service key (card ISRC/UPC) for by-recording rollups.
+      ...(contentKey ? { content_key: contentKey } : {}),
+    }),
   })

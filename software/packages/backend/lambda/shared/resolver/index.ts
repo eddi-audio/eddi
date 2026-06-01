@@ -39,6 +39,11 @@ interface ResolveInput {
 export interface ResolveOutput extends ResolutionResult {
   /** Spotify playlist owner, preserved for attribution. */
   attribution?: string
+  /** Universal cross-service recording key (track). Persisted on the card so
+   * engagement can be aggregated by recording across every card + service. */
+  isrc?: string
+  /** Universal cross-service release key (album). */
+  upc?: string
 }
 
 export async function resolveAllServices(input: ResolveInput): Promise<ResolveOutput> {
@@ -80,7 +85,10 @@ export async function resolveAllServices(input: ResolveInput): Promise<ResolveOu
   if (identity.isrc) {
     const cached = await getCached(identity.isrc)
     if (cached) {
-      return { service_uris: { ...cached.service_uris, spotify: spotifyUrl }, attribution }
+      return {
+        service_uris: { ...cached.service_uris, spotify: spotifyUrl },
+        attribution, isrc: identity.isrc, upc: identity.upc,
+      }
     }
   }
 
@@ -99,5 +107,5 @@ export async function resolveAllServices(input: ResolveInput): Promise<ResolveOu
     if (Object.keys(targets).length > 0) await putCached(identity.isrc, targets)
   }
 
-  return { service_uris, match_counts, attribution }
+  return { service_uris, match_counts, attribution, isrc: identity.isrc, upc: identity.upc }
 }

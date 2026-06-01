@@ -206,6 +206,8 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
   let service_uris: Partial<Record<ServiceKey, string>> = { spotify: meta.spotifyUrl }
   let match_counts: ResolutionResult['match_counts']
   let attribution: string | undefined
+  let isrc: string | undefined
+  let upc: string | undefined
 
   if (parsed.type === 'track' || parsed.type === 'album' || parsed.type === 'playlist') {
     try {
@@ -218,6 +220,8 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
       service_uris = resolved.service_uris
       match_counts = resolved.match_counts
       attribution = resolved.attribution
+      isrc = resolved.isrc
+      upc = resolved.upc
     } catch (e) {
       console.error('cross-service resolution failed; falling back to spotify-only', e)
     }
@@ -232,6 +236,10 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
       content_type: meta.contentType,
       track_count: meta.trackCount,
       service_uris,
+      // Universal cross-service keys — carried through createCard so they
+      // persist on the card for by-recording engagement aggregation.
+      ...(isrc ? { isrc } : {}),
+      ...(upc ? { upc } : {}),
       ...(match_counts && Object.keys(match_counts).length ? { match_counts } : {}),
       ...(attribution ? { attribution } : {}),
     }),
@@ -247,6 +255,8 @@ async function handleCreateCard(body: {
   display_name?: string
   attribution?: string
   match_counts?: ResolutionResult['match_counts']
+  isrc?: string
+  upc?: string
 }): Promise<APIGatewayProxyResultV2> {
   if (!body.title || !body.artwork_url || !body.content_type || !body.service_uris) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'MISSING_FIELDS' }) }
@@ -295,6 +305,10 @@ async function handleCreateCard(body: {
     content_type: body.content_type as ContentType,
     track_count: body.track_count,
     service_uris: body.service_uris,
+    // Universal cross-service keys — the join key for by-recording engagement
+    // aggregation across every card and service (the cross-service graph).
+    ...(body.isrc ? { isrc: body.isrc } : {}),
+    ...(body.upc ? { upc: body.upc } : {}),
     // Original-creator attribution (e.g. Spotify playlist owner) and per-service
     // best-effort match counts for playlists ("45 of 47 on Apple Music").
     ...(body.attribution ? { source_attribution: body.attribution } : {}),

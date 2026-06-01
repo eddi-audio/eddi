@@ -8,6 +8,11 @@ export interface ArtworkPalette {
   secondary: string   // accent color
 }
 
+export interface MatchCount {
+  matched: number
+  total: number
+}
+
 export interface Card {
   id: string
   title: string
@@ -17,6 +22,13 @@ export interface Card {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  // Universal cross-service keys (track ISRC / album UPC).
+  isrc?: string
+  upc?: string
+  // Original creator on the source service (e.g. Spotify playlist owner).
+  source_attribution?: string
+  // Per-service best-effort match counts for playlists ("45 of 47 on Apple").
+  match_counts?: Partial<Record<ServiceKey, MatchCount>>
   source: CardSource
   created_by_display?: string
   tap_count: number
@@ -31,6 +43,11 @@ export interface CardEvent {
   event_type: 'tap' | 'play' | 'share' | 'duplicate' | 'write'
   service_selected?: ServiceKey
   referrer?: string
+  // Universal cross-service key (card ISRC/UPC) for by-recording rollups.
+  // NOTE: the app + backend use a different event_type taxonomy (card_open /
+  // service_open / library_save / device_play). Reconcile these into one shared
+  // taxonomy when the cross-service analytics are built. See docs.
+  content_key?: string
 }
 
 export interface ResolveResult {

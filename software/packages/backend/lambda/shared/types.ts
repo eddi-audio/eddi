@@ -17,6 +17,11 @@ export interface Card {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  // Universal cross-service keys. `isrc` (track) / `upc` (album) are identical
+  // across all services for the same recording/release — the join key for
+  // aggregating engagement by recording across every card + service.
+  isrc?: string
+  upc?: string
   // Original creator on the source service (e.g. Spotify playlist owner),
   // preserved for attribution — the source playlist stays creator-owned.
   source_attribution?: string
