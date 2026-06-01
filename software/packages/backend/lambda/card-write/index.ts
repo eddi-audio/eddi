@@ -6,6 +6,8 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda
 import { customAlphabet } from 'nanoid'
 import sharp from 'sharp'
 import type { ContentType, ServiceKey, CardSource } from '../shared/types'
+import { resolveAllServices } from '../shared/resolver'
+import type { ResolutionResult } from '../shared/resolver/types'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const s3 = new S3Client({})
@@ -197,6 +199,30 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
   const token = await getSpotifyToken()
   const meta = await fetchSpotifyMeta(token, parsed.type, parsed.id)
 
+  // Cross-service resolution. Only runs the pipeline for the resolvable content
+  // types (track/album/playlist); other Spotify types (artist/show/episode)
+  // stay Spotify-only. Resolution failures never break the resolve response —
+  // worst case the card is Spotify-only, exactly as before.
+  let service_uris: Partial<Record<ServiceKey, string>> = { spotify: meta.spotifyUrl }
+  let match_counts: ResolutionResult['match_counts']
+  let attribution: string | undefined
+
+  if (parsed.type === 'track' || parsed.type === 'album' || parsed.type === 'playlist') {
+    try {
+      const resolved = await resolveAllServices({
+        token,
+        type: parsed.type,
+        id: parsed.id,
+        spotifyUrl: meta.spotifyUrl,
+      })
+      service_uris = resolved.service_uris
+      match_counts = resolved.match_counts
+      attribution = resolved.attribution
+    } catch (e) {
+      console.error('cross-service resolution failed; falling back to spotify-only', e)
+    }
+  }
+
   return {
     statusCode: 200,
     headers: CORS,
@@ -205,7 +231,9 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
       artwork_url: meta.artworkUrl,
       content_type: meta.contentType,
       track_count: meta.trackCount,
-      service_uris: { spotify: meta.spotifyUrl },
+      service_uris,
+      ...(match_counts && Object.keys(match_counts).length ? { match_counts } : {}),
+      ...(attribution ? { attribution } : {}),
     }),
   }
 }
@@ -217,6 +245,8 @@ async function handleCreateCard(body: {
   track_count?: number
   service_uris?: Partial<Record<ServiceKey, string>>
   display_name?: string
+  attribution?: string
+  match_counts?: ResolutionResult['match_counts']
 }): Promise<APIGatewayProxyResultV2> {
   if (!body.title || !body.artwork_url || !body.content_type || !body.service_uris) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'MISSING_FIELDS' }) }
@@ -265,6 +295,10 @@ async function handleCreateCard(body: {
     content_type: body.content_type as ContentType,
     track_count: body.track_count,
     service_uris: body.service_uris,
+    // Original-creator attribution (e.g. Spotify playlist owner) and per-service
+    // best-effort match counts for playlists ("45 of 47 on Apple Music").
+    ...(body.attribution ? { source_attribution: body.attribution } : {}),
+    ...(body.match_counts && Object.keys(body.match_counts).length ? { match_counts: body.match_counts } : {}),
     source: 'user' as CardSource,
     created_by_display: body.display_name,
     tap_count: 0,

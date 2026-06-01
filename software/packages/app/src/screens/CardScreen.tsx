@@ -8,6 +8,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import type { RootStackParamList } from '../navigation'
 import { getCard, logEvent } from '../api/cards'
 import { useServicePref } from '../hooks/useServicePref'
+import { WEB_ORIGIN } from '../config'
 import type { ServiceKey } from '../types/card'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Card'>

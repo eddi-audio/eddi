@@ -8,6 +8,11 @@ export interface ArtworkPalette {
   secondary: string
 }
 
+export interface MatchCount {
+  matched: number
+  total: number
+}
+
 export interface Card {
   id: string
   title: string
@@ -16,6 +21,10 @@ export interface Card {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  /** Original creator on the source service (e.g. Spotify playlist owner). */
+  source_attribution?: string
+  /** Per-service best-effort match counts for playlists. */
+  match_counts?: Partial<Record<ServiceKey, MatchCount>>
   source: CardSource
   created_by_display?: string
   tap_count: number
@@ -29,4 +38,8 @@ export interface ResolveResult {
   content_type: ContentType
   track_count?: number
   service_uris: Partial<Record<ServiceKey, string>>
+  /** Spotify playlist owner, carried through to the created card. */
+  attribution?: string
+  /** Per-service playlist match counts, carried through to the created card. */
+  match_counts?: Partial<Record<ServiceKey, MatchCount>>
 }

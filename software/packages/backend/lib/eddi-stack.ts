@@ -33,8 +33,8 @@ export class EddiStack extends cdk.Stack {
       timeToLiveAttribute: 'ttl',
     })
 
-    // Seeded empty — resolver sprint will write to this
-    new dynamodb.Table(this, 'IsrcCacheTable', {
+    // Cross-service resolver cache: ISRC -> per-service URLs (90-day TTL).
+    const isrcCacheTable = new dynamodb.Table(this, 'IsrcCacheTable', {
       tableName: 'eddi-isrc-cache',
       partitionKey: { name: 'isrc', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -145,6 +145,7 @@ export class EddiStack extends cdk.Stack {
       bundling: sharedBundling,
       environment: {
         ...commonEnv,
+        ISRC_CACHE_TABLE: isrcCacheTable.tableName,
         SPOTIFY_CLIENT_ID_PARAM: '/eddi/prod/spotify/client_id',
         SPOTIFY_CLIENT_SECRET_PARAM: '/eddi/prod/spotify/client_secret',
       },
@@ -169,6 +170,7 @@ export class EddiStack extends cdk.Stack {
     cardEventsTable.grantWriteData(eventLogFn)
 
     cardsTable.grantReadWriteData(cardWriteFn)
+    isrcCacheTable.grantReadWriteData(cardWriteFn)
     artworkBucket.grantReadWrite(cardWriteFn)
     ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientId', {
       parameterName: '/eddi/prod/spotify/client_id',
