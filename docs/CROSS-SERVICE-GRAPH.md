@@ -66,3 +66,29 @@ analytics rollup is actually built — flagged in `web/src/types/card.ts`.
   so rollups must persist the aggregate.
 - Then surface: card page social proof, device "most-saved across services,"
   cross-service "also tapped" discovery.
+
+## ⚠️ Shared telemetry backbone — reconcile with these, don't rebuild
+
+This graph is **the same server-side event/device telemetry** that three other
+in-flight features depend on. They must be designed as one backbone, not four:
+
+- **Currently Playing feed** (decided 2026-05-30) — device plays an ambient
+  stream of what other Eddis are playing; the server tracks every Eddi's live
+  playback. That live-device-state channel is the **same data** as `device_play`
+  events here.
+- **Find My Eddi** (Notion ART-22) — Tier 2 "last seen on a network" is literally
+  *"a UI on existing `eddi-card-events` data."* Same table, same query layer.
+- **Device play telemetry** — when the device resolves/plays a card it should emit
+  the `device_play` event (reserved in the taxonomy here) with the card's
+  `content_key`, so device plays count in the cross-service rollup too.
+
+**Implication:** the event taxonomy (`card_open / service_open / library_save /
+device_play`) + `content_key` stamping defined here should be the **single
+canonical event contract** for all of the above. Build the rollup/aggregation
+table once; Find My Eddi, Currently Playing, and this graph all read from it.
+Don't let each feature invent its own event shape.
+
+> Open question shared with Find My Eddi: does the device hold a persistent
+> connection between plays, or ping on activity? The Currently Playing feed
+> implies persistent (it pushes audio). Confirming this scopes both `device_play`
+> emission here and Find My Eddi Tier 1.
