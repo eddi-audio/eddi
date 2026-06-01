@@ -197,7 +197,23 @@ async function handleResolve(body: { url?: string }): Promise<APIGatewayProxyRes
   }
 
   const token = await getSpotifyToken()
-  const meta = await fetchSpotifyMeta(token, parsed.type, parsed.id)
+  let meta: SpotifyMeta
+  try {
+    meta = await fetchSpotifyMeta(token, parsed.type, parsed.id)
+  } catch (e) {
+    // A bad/removed Spotify ID surfaces as a 404 from the Spotify API. Return a
+    // clean NOT_FOUND instead of crashing the Lambda (which surfaced as a 502).
+    const msg = e instanceof Error ? e.message : String(e)
+    const status = /\b404\b/.test(msg) ? 404 : 502
+    return {
+      statusCode: status,
+      headers: CORS,
+      body: JSON.stringify({
+        error: status === 404 ? 'NOT_FOUND' : 'RESOLVE_FAILED',
+        message: status === 404 ? "That Spotify link couldn't be found." : 'Could not resolve that link right now.',
+      }),
+    }
+  }
 
   // Cross-service resolution. Only runs the pipeline for the resolvable content
   // types (track/album/playlist); other Spotify types (artist/show/episode)
