@@ -64,12 +64,14 @@ Build: `cd software/packages/app/android && ./gradlew :app:assembleRelease -Prea
 Live at `https://4p46ddsze9.execute-api.us-east-1.amazonaws.com/prod` (account
 733652933079, us-east-1). Routes (CDK `software/packages/backend/lib/eddi-stack.ts`):
 `GET /cards/{id}`, `POST /cards`, `POST /resolve`, `POST /cards/{id}/events`,
-`GET /og/{id}`. Backend code committed and clean. `POST /resolve` returns title +
-artwork + service_uris for a streaming URL. Spotify secret in SSM.
+`GET /og/{id}`. Backend code committed and clean. Spotify + Tidal secrets in SSM
+(`/eddi/prod/{spotify,tidal}/*`, SecureString).
 
-> Not verified this session: a `cdk diff` against the deployed stack (SSO token
-> expired). Endpoints respond correctly, so functionally current. Run
-> `aws sso login --profile eddi` then `cdk diff` if byte-level certainty is wanted.
+**Cross-service resolver LIVE (2026-06-01): Spotify + Tidal.** `POST /resolve`
+returns `service_uris` with both `spotify` and `tidal` (track by ISRC, album by
+UPC), plus the extracted ISRC/UPC. Deployed + verified on the real API. Next
+target resolvers: Apple Music (have account; needs MusicKit .p8), YouTube Music
+(ytmusicapi). See the "Cross-Service Resolver" artifact in Notion for detail.
 
 ## DNS / domains
 
