@@ -7,8 +7,8 @@
 | Dir | What | Git |
 |-----|------|-----|
 | `software/` | The npm monorepo: `packages/` (web, app, backend), `infra/` (Cloudflare worker + wrangler), `node_modules/`, `package.json`, lockfile. **All npm/build commands run from here.** | tracked |
-| `device/` | Raspberry Pi firmware / services | tracked |
-| `docs/` | Cross-cutting docs (STATUS, RUNBOOK, research, architecture.json) | tracked |
+| `device/` | Raspberry Pi firmware / services + `SETUP.md` | tracked |
+| `docs/` | Operational orientation only (STATUS, RUNBOOK, README, ANDROID-RELEASE). Specs/research are local-only & **canonical in Notion** | mixed |
 | `business/` | Legal, patent, research, branding | **ignored** |
 | `design/` | Visual assets / artwork | **ignored** |
 | `hardware/` | CAD, renders, materials | **ignored** |
@@ -18,11 +18,23 @@ The real app is `software/packages/app`.
 
 ## ⚡ Do this at the START of every session
 
-1. **Read `docs/STATUS.md`** — current state (what's live, done, open). It's the
-   source of truth; trust it over reconstructing state from `git log`.
-2. **Skim `docs/RUNBOOK.md`** — build/deploy/run commands + fixes for every
+1. **Get the lay of the land from Notion** (the "Eddi Audio" workspace is the
+   canonical source of truth — specs/research are gitignored, so the repo alone
+   is incomplete). If the Notion MCP is connected:
+   - `notion-fetch` the hub **🎵 Eddi Audio** (`34c50a9f-f3c3-8046-9be9-fecc5cbf8f6b`)
+     for current state, active workstreams, and critical path.
+   - Check the **Tasks** DB (`collection://01337f84-c65c-4161-8428-140f88277ac9`)
+     for what's open/in-progress.
+   - Before designing anything, check **Artifacts** for the relevant spec and the
+     **Decision Log** (`collection://7f6c11d5-7f09-4df7-8d0d-8b788e4797ff`) for
+     *why* it's that way. Search the Decision Log BEFORE adding a new decision.
+   - Keep Notion updated as work happens (new spec → Artifact; real decision →
+     Decision Log). Surface any Notion rate-limits/errors to Daniel.
+2. **Read `docs/STATUS.md`** — current repo/build state (what's live, done, open).
+   Trust it over reconstructing state from `git log`.
+3. **Skim `docs/RUNBOOK.md`** — build/deploy/run commands + fixes for every
    problem already hit. Check it BEFORE re-debugging anything familiar.
-3. **If commands return garbled/duplicated output, get SIGKILL'd, or you see
+4. **If commands return garbled/duplicated output, get SIGKILL'd, or you see
    `ENOSPC` / "temp filesystem full":** it's the session temp dir, NOT the disk
    (`df -h /` has hundreds of GB free). Recover with:
    ```bash
