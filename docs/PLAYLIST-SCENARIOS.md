@@ -95,11 +95,20 @@ Discover Weekly"). The question is whether we can deliver it compliantly.
 
 ## Friction-mitigation options (ranked, with honest tradeoffs)
 
-### A. Card it as Spotify-only (zero build)
-Any non-owned playlist still makes a working card that opens+plays in Spotify.
-Just no other-service buttons. **This is the always-available floor.** Honest
-write-time copy: "This'll be a Spotify card — to add Apple/Tidal buttons, it
-needs to be a playlist you made."
+### A. Card it as Spotify-only (zero build) — ⭐ RESOLVED DEFAULT for the 20%
+Any non-owned/editorial playlist still makes a working card that opens+plays in
+Spotify. Just no other-service buttons. **This is the always-available floor and
+the decided default.**
+
+**Governing principle (Decision Log 2026-06-02): writing a card must NEVER fail
+or block on resolution.** Cross-service is enrichment around a write that already
+succeeded — not a gate. So a non-owned playlist NEVER errors; it just becomes a
+Spotify-only card.
+
+**Gentle nudge (decided):** one optional, non-blocking line at write time —
+*"Plays on Spotify. Want Apple/Tidal buttons too? Make your own copy in Spotify
+first."* Sets expectation + offers the upgrade path. Never a wall, never required,
+keep it to one line (don't explain Spotify's API politics to a normal user).
 
 ### B. Guided "duplicate → card" — RESOLVED 2026-06-02: must happen IN Spotify, Eddi can't do it
 At write time, detect the playlist isn't owned by the logged-in user, and route
