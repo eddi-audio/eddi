@@ -73,9 +73,16 @@ export async function getPlaylistTracks(
 ): Promise<{ tracks: PlaylistTrack[]; ownerName?: string }> {
   const head = await api<{ owner?: { display_name?: string } }>(token, `/playlists/${id}?fields=owner(display_name)`)
 
+  // Feb-2026 changed BOTH the path and the item shape:
+  //  - path:  /playlists/{id}/tracks  ->  /playlists/{id}/items
+  //  - shape: each entry's track object moved from `item.track` to `item.item`
+  // The items object is only returned for playlists the token-user OWNS or
+  // collaborates on (verified live 2026-06-02: owned=200, followed/stranger=403),
+  // so `token` MUST be a USER token and the playlist must be owned by that user.
+  // See the "Spotify Web API Access Model" artifact in Notion.
   interface PlaylistTracksPage {
     items: Array<{
-      track: {
+      item: {
         name: string
         duration_ms: number
         artists: Array<{ name: string }>
@@ -86,19 +93,14 @@ export async function getPlaylistTracks(
   }
 
   const tracks: PlaylistTrack[] = []
-  // Feb-2026: /playlists/{id}/tracks was renamed to /playlists/{id}/items. The
-  // items object is only returned for playlists the token-user owns/collaborates
-  // on, so `token` here must be a USER token (not client-credentials) and the
-  // playlist must be owned by that user. See the "Spotify Web API Access Model"
-  // artifact in Notion.
-  let url: string | null = `/playlists/${id}/items?fields=items(track(name,duration_ms,artists(name),external_ids)),next&limit=100`
+  let url: string | null = `/playlists/${id}/items?fields=items(item(name,duration_ms,artists(name),external_ids)),next&limit=100`
   let position = 0
 
   while (url) {
     const page: PlaylistTracksPage = await api<PlaylistTracksPage>(token, url)
 
-    for (const item of page.items) {
-      const t = item.track
+    for (const entry of page.items) {
+      const t = entry.item
       if (!t) continue // local/unavailable tracks come back null
       tracks.push({
         position: position++,
