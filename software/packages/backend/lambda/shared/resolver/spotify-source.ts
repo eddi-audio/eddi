@@ -86,7 +86,12 @@ export async function getPlaylistTracks(
   }
 
   const tracks: PlaylistTrack[] = []
-  let url: string | null = `/playlists/${id}/tracks?fields=items(track(name,duration_ms,artists(name),external_ids)),next&limit=100`
+  // Feb-2026: /playlists/{id}/tracks was renamed to /playlists/{id}/items. The
+  // items object is only returned for playlists the token-user owns/collaborates
+  // on, so `token` here must be a USER token (not client-credentials) and the
+  // playlist must be owned by that user. See the "Spotify Web API Access Model"
+  // artifact in Notion.
+  let url: string | null = `/playlists/${id}/items?fields=items(track(name,duration_ms,artists(name),external_ids)),next&limit=100`
   let position = 0
 
   while (url) {

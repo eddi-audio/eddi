@@ -42,6 +42,17 @@ export class EddiStack extends cdk.Stack {
       timeToLiveAttribute: 'ttl',
     })
 
+    // Short-lived PKCE verifiers for Spotify user OAuth (10-min TTL). Holds NO
+    // user records — only the in-flight auth handshake state. On-brand: no
+    // Eddi-native account; the resulting token lives in the client session.
+    const authStateTable = new dynamodb.Table(this, 'AuthStateTable', {
+      tableName: 'eddi-auth-state',
+      partitionKey: { name: 'state', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // ephemeral, safe to drop
+      timeToLiveAttribute: 'ttl',
+    })
+
     // ── S3 Buckets ────────────────────────────────────────────────────────────
 
     const artworkBucket = new s3.Bucket(this, 'ArtworkBucket', {
@@ -166,6 +177,23 @@ export class EddiStack extends cdk.Stack {
       environment: commonEnv,
     })
 
+    const spotifyAuthFn = new NodejsFunction(this, 'SpotifyAuthFn', {
+      ...nodejsDefaults,
+      functionName: 'eddi-spotify-auth',
+      entry: path.join(__dirname, '../lambda/spotify-auth/index.ts'),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
+      bundling: sharedBundling,
+      environment: {
+        AUTH_STATE_TABLE: authStateTable.tableName,
+        SPOTIFY_CLIENT_ID_PARAM: '/eddi/prod/spotify/client_id',
+        SPOTIFY_CLIENT_SECRET_PARAM: '/eddi/prod/spotify/client_secret',
+        // Redirect URI must EXACTLY match one registered in the Spotify app dashboard.
+        SPOTIFY_REDIRECT_URI: 'https://4p46ddsze9.execute-api.us-east-1.amazonaws.com/prod/auth/spotify/callback',
+        WEB_ORIGIN: 'https://eddi.audio',
+      },
+    })
+
     // ── IAM Permissions ──────────────────────────────────────────────────────
 
     cardsTable.grantReadWriteData(cardLookupFn)
@@ -176,12 +204,19 @@ export class EddiStack extends cdk.Stack {
     cardsTable.grantReadWriteData(cardWriteFn)
     isrcCacheTable.grantReadWriteData(cardWriteFn)
     artworkBucket.grantReadWrite(cardWriteFn)
-    ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientId', {
+    const spotifyClientId = ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientId', {
       parameterName: '/eddi/prod/spotify/client_id',
-    }).grantRead(cardWriteFn)
-    ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientSecret', {
+    })
+    const spotifyClientSecret = ssm.StringParameter.fromSecureStringParameterAttributes(this, 'SpotifyClientSecret', {
       parameterName: '/eddi/prod/spotify/client_secret',
-    }).grantRead(cardWriteFn)
+    })
+    spotifyClientId.grantRead(cardWriteFn)
+    spotifyClientSecret.grantRead(cardWriteFn)
+
+    // Spotify auth lambda: PKCE state table + Spotify creds.
+    authStateTable.grantReadWriteData(spotifyAuthFn)
+    spotifyClientId.grantRead(spotifyAuthFn)
+    spotifyClientSecret.grantRead(spotifyAuthFn)
     ssm.StringParameter.fromSecureStringParameterAttributes(this, 'TidalClientId', {
       parameterName: '/eddi/prod/tidal/client_id',
     }).grantRead(cardWriteFn)
@@ -219,6 +254,12 @@ export class EddiStack extends cdk.Stack {
     api.root.addResource('resolve').addMethod('POST', new apigateway.LambdaIntegration(cardWriteFn))
     cardsResource.addMethod('POST', new apigateway.LambdaIntegration(cardWriteFn))
     api.root.addResource('og').addResource('{id}').addMethod('GET', new apigateway.LambdaIntegration(ogImageFn))
+
+    // Spotify user OAuth (PKCE): GET /auth/spotify/login + /auth/spotify/callback
+    const authResource = api.root.addResource('auth').addResource('spotify')
+    const authIntegration = new apigateway.LambdaIntegration(spotifyAuthFn)
+    authResource.addResource('login').addMethod('GET', authIntegration)
+    authResource.addResource('callback').addMethod('GET', authIntegration)
 
     // ── Keep-alive ────────────────────────────────────────────────────────────
 
