@@ -24,6 +24,16 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!--
+          Makes Eddi a target in the system share sheet. Spotify, Tidal, and
+          YouTube all share a link as ACTION_SEND text/plain; MainActivity
+          rewrites that into an ACTION_VIEW so RN Linking delivers the URL.
+        -->
+        <intent-filter>
+            <action android:name="android.intent.action.SEND" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:mimeType="text/plain" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

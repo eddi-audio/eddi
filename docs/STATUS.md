@@ -85,14 +85,49 @@ Xcode 16+ is Apple-Silicon-only; this is a 2015 Intel Mac (Sequoia via OCLP). iO
 needs an Apple Silicon Mac or a cloud Mac. Android is the production path. See
 RUNBOOK.
 
+## Share-sheet (Android) ✅ code-complete — needs on-device verify
+
+Eddi now appears as a target when you Share a link from Spotify/Tidal/YouTube.
+Implementation (no new dependency, no native module):
+- **Manifest** — added `ACTION_SEND` + `text/plain` intent-filter to MainActivity.
+- **MainActivity.kt** — `normalizeShareIntent()` extracts the URL from the shared
+  text and rewrites the `ACTION_SEND` intent as `ACTION_VIEW` (cold start in
+  `onCreate`, warm start in `onNewIntent` + `setIntent`). This is the trick that
+  lets RN's `Linking` deliver it — Linking only surfaces `ACTION_VIEW` URLs.
+- **navigation/index.tsx** — `navigationRef` + `Linking.getInitialURL()`
+  (onReady) and `'url'` event listener route the URL into `Write`.
+- **WriteScreen.tsx** — new `sharedUrl` route param auto-resolves on mount.
+
+**Write flow shortened (same session):** dropped the name-input + "Looks good"
+preview step. Now: resolve → straight into the write step (which auto-arms the
+NFC write) → success. The tap-to-write graphic stands in for the album art at
+the same footprint (placeholder until the real write animation). Success shows
+"Card written!" + a small card preview, then auto-returns to Home (popToTop)
+after ~2.6s (also a manual "Done"). Removed `display_name` from this flow.
+Steps: `paste | write | success` (was `paste | preview | write | success`).
+- **VERIFIED ON DEVICE (2026-06-15):** prod-signed release APK built + installed
+  on the Pixel; shared a **Tidal album** from the share sheet → Eddi resolved it
+  and ran the shortened write flow end-to-end. 🎉
+- Note: YouTube links will appear in the sheet but **won't resolve** until the
+  backend YT Music resolver lands (Spotify+Tidal resolve today).
+- iOS still needs a Share Extension and is hardware-blocked.
+
+### Action item — write-step art/state polish (deferred, no rebuild tonight)
+Currently the tap-to-write graphic stands in for the album art the *whole* write
+step. Desired:
+1. **Show the real album art as soon as the link resolves** (the art is already
+   in `resolved.artwork_url` — render it in the write step instead of the
+   placeholder graphic).
+2. **Only when the card is brought close** (NFC tag detected / write actually
+   begins) swap the art for a **"Writing card…"** state.
+This needs the NFC hook to surface a "tag detected / write started" signal so the
+UI can flip on contact, rather than on entering the step. File:
+`software/packages/app/src/screens/WriteScreen.tsx` (+ `hooks/useEddiNfc`).
+
 ## Next (when user returns)
 
-- **Write-flow + design redesign** (user is doing this now). Share-sheet
-  integration is intentionally **deferred until the flow is finalized** — it's a
-  door *into* the Write flow, so building it first would duplicate work. Research
-  is captured (Android intent-filter `ACTION_SEND` + a receive-share library;
-  auto-resolve a shared URL straight into the preview step; iOS needs a Share
-  Extension and is hardware-blocked).
+- **Write-step art/state polish** (action item above).
+- **Write-flow + design redesign** (user is doing this).
 - Backup `software/secrets/` — ✅ done by user.
 - Google Play listing + AAB upload — when ready to ship.
 

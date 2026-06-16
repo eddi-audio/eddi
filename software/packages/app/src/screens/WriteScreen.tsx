@@ -10,64 +10,35 @@ import { writeEddiCard } from '../hooks/useEddiNfc'
 import type { ResolveResult } from '../types/card'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Write'>
-type Step = 'paste' | 'preview' | 'write' | 'success'
+type Step = 'paste' | 'write' | 'success'
 
 export default function WriteScreen({ route, navigation }: Props) {
   const cloneId = route.params?.cloneId
+  const sharedUrl = route.params?.sharedUrl
 
   const [step, setStep] = useState<Step>('paste')
   const [url, setUrl] = useState('')
   const [resolving, setResolving] = useState(false)
   const [resolved, setResolved] = useState<ResolveResult | null>(null)
-  const [displayName, setDisplayName] = useState('')
   const [writing, setWriting] = useState(false)
-  const [newCardId, setNewCardId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Pre-load clone source
-  useEffect(() => {
-    if (cloneId) {
-      getCard(cloneId).then(card => {
-        setResolved({
-          title: card.title,
-          artwork_url: card.artwork_url,
-          content_type: card.content_type,
-          track_count: card.track_count,
-          service_uris: card.service_uris,
-        })
-        setStep('preview')
-      }).catch(() => {})
-    }
-  }, [cloneId])
-
-  const handleResolve = async () => {
-    if (!url.trim()) return
-    setResolving(true)
-    setError(null)
-    try {
-      const result = await resolveUrl(url.trim())
-      setResolved(result)
-      setStep('preview')
-    } catch {
-      setError("Couldn't find that link. Paste a Spotify, Apple Music, or Tidal URL.")
-    } finally {
-      setResolving(false)
-    }
-  }
-
-  const handleWrite = async () => {
-    if (!resolved) return
+  // Create the card record + arm the NFC write. Pass the resolved data in
+  // directly so we can fire immediately after a resolve without waiting on a
+  // state update.
+  const handleWrite = async (data?: ResolveResult) => {
+    const card = data ?? resolved
+    if (!card) return
     setWriting(true)
     setError(null)
     try {
-      const { id } = await createCard({ ...resolved, display_name: displayName || undefined })
-      await writeEddiCard(id, resolved.service_uris as Record<string, string>)
-      setNewCardId(id)
+      const { id } = await createCard({ ...card })
+      await writeEddiCard(id, card.service_uris as Record<string, string>)
       setStep('success')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       if (msg.includes('cancel') || msg.includes('UserCancel')) {
-        setError('Write cancelled. Try again.')
+        setError('Write cancelled — tap the card again.')
       } else {
         setError(`Write failed: ${msg}`)
       }
@@ -76,13 +47,64 @@ export default function WriteScreen({ route, navigation }: Props) {
     }
   }
 
-  const reset = () => {
-    setStep('paste')
-    setUrl('')
-    setResolved(null)
-    setDisplayName('')
-    setNewCardId(null)
+  const handleResolve = async (rawUrl?: string) => {
+    const target = (rawUrl ?? url).trim()
+    if (!target) return
+    setResolving(true)
     setError(null)
+    try {
+      const result = await resolveUrl(target)
+      setResolved(result)
+      // Shortened flow: no name/confirm step — resolve straight into the write.
+      setStep('write')
+      handleWrite(result)
+    } catch {
+      setError("Couldn't find that link. Paste a Spotify, Apple Music, or Tidal URL.")
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  // Pre-load a clone source, then go straight to writing.
+  useEffect(() => {
+    if (cloneId) {
+      getCard(cloneId).then(card => {
+        const result: ResolveResult = {
+          title: card.title,
+          artwork_url: card.artwork_url,
+          content_type: card.content_type,
+          track_count: card.track_count,
+          service_uris: card.service_uris,
+        }
+        setResolved(result)
+        setStep('write')
+        handleWrite(result)
+      }).catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloneId])
+
+  // A link shared into Eddi from another app lands here with its URL prefilled —
+  // auto-resolve it, which then flows straight into the write.
+  useEffect(() => {
+    if (sharedUrl) {
+      setUrl(sharedUrl)
+      handleResolve(sharedUrl)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedUrl])
+
+  // After a successful write, show the confirmation briefly, then return home.
+  useEffect(() => {
+    if (step !== 'success') return
+    const t = setTimeout(() => navigation.popToTop(), 2600)
+    return () => clearTimeout(t)
+  }, [step, navigation])
+
+  const editLink = () => {
+    setError(null)
+    setResolved(null)
+    setStep('paste')
   }
 
   return (
@@ -98,10 +120,10 @@ export default function WriteScreen({ route, navigation }: Props) {
 
       {/* Step indicators */}
       <View style={styles.steps}>
-        {(['paste', 'preview', 'write'] as const).map((s, i) => (
+        {(['paste', 'write'] as const).map((s, i) => (
           <View
             key={s}
-            style={[styles.stepDot, (step === 'success' || ['paste', 'preview', 'write'].indexOf(step) >= i) && styles.stepDotActive]}
+            style={[styles.stepDot, (step === 'success' || ['paste', 'write'].indexOf(step) >= i) && styles.stepDotActive]}
           />
         ))}
       </View>
@@ -116,7 +138,7 @@ export default function WriteScreen({ route, navigation }: Props) {
               style={styles.input}
               value={url}
               onChangeText={setUrl}
-              onSubmitEditing={handleResolve}
+              onSubmitEditing={() => handleResolve()}
               placeholder="https://open.spotify.com/..."
               placeholderTextColor="rgba(255,255,255,0.25)"
               autoCapitalize="none"
@@ -128,7 +150,7 @@ export default function WriteScreen({ route, navigation }: Props) {
             {error && <Text style={styles.error}>{error}</Text>}
             <TouchableOpacity
               style={[styles.primaryBtn, (!url.trim() || resolving) && styles.btnDisabled]}
-              onPress={handleResolve}
+              onPress={() => handleResolve()}
               disabled={!url.trim() || resolving}
             >
               {resolving ? <ActivityIndicator color="black" /> : <Text style={styles.primaryBtnText}>Continue</Text>}
@@ -136,82 +158,59 @@ export default function WriteScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* Preview */}
-        {step === 'preview' && resolved && (
-          <View style={styles.section}>
-            {resolved.artwork_url && (
-              <Image source={{ uri: resolved.artwork_url }} style={styles.artwork} />
-            )}
-            <Text style={styles.resolvedType}>{resolved.content_type.toUpperCase()}</Text>
-            <Text style={styles.resolvedTitle}>{resolved.title}</Text>
-            {resolved.track_count && (
-              <Text style={styles.resolvedMeta}>{resolved.track_count} tracks</Text>
-            )}
-            <Text style={[styles.label, { marginTop: 20 }]}>Your name (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="e.g. @daniel"
-              placeholderTextColor="rgba(255,255,255,0.25)"
-              maxLength={40}
-            />
-            <Text style={styles.hint}>Shows as "Made by [name]" on the card page</Text>
-            <View style={styles.row}>
-              <TouchableOpacity style={[styles.secondaryBtn, { flex: 1 }]} onPress={() => { setResolved(null); setStep('paste') }}>
-                <Text style={styles.secondaryBtnText}>Back</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.primaryBtn, { flex: 2 }]} onPress={() => setStep('write')}>
-                <Text style={styles.primaryBtnText}>Looks good →</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Write */}
-        {step === 'write' && (
+        {/* Write — the tap-to-write graphic stands in for the album art until
+            the real write animation lands. */}
+        {step === 'write' && resolved && (
           <View style={[styles.section, styles.centered]}>
-            <View style={[styles.nfcRing, writing && styles.nfcRingActive]}>
-              <Text style={styles.nfcIcon}>⟡</Text>
+            <View style={[styles.tapSlot, writing && styles.tapSlotActive]}>
+              <Text style={styles.tapIcon}>⟡</Text>
             </View>
-            <Text style={styles.writeTitle}>
-              {writing ? 'Hold phone to the card…' : 'Ready to write'}
+            <Text style={styles.resolvedType}>{resolved.content_type.toUpperCase()}</Text>
+            <Text style={styles.resolvedTitle} numberOfLines={2}>{resolved.title}</Text>
+            <Text style={[styles.writeTitle, { marginTop: 16 }]}>
+              {error ? 'Write failed' : 'Tap card to write'}
             </Text>
-            <Text style={styles.writeSubtitle}>
-              {writing
-                ? 'Keep your phone still until the write completes'
-                : 'Tap the button below, then hold your phone to the blank NFC card'}
-            </Text>
-            {error && <Text style={styles.error}>{error}</Text>}
-            <TouchableOpacity
-              style={[styles.primaryBtn, writing && styles.btnDisabled, { width: '100%' }]}
-              onPress={handleWrite}
-              disabled={writing}
-            >
-              {writing ? <ActivityIndicator color="black" /> : <Text style={styles.primaryBtnText}>Write to card</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setStep('preview')}>
-              <Text style={styles.ghostBtn}>Back</Text>
-            </TouchableOpacity>
+            {error ? (
+              <Text style={styles.error}>{error}</Text>
+            ) : (
+              <Text style={styles.writeSubtitle}>Hold your phone to the blank NFC card</Text>
+            )}
+            {error && (
+              <>
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { width: '100%' }]}
+                  onPress={() => handleWrite()}
+                >
+                  <Text style={styles.primaryBtnText}>Try again</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={editLink}>
+                  <Text style={styles.ghostBtn}>Use a different link</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         )}
 
-        {/* Success */}
-        {step === 'success' && newCardId && (
+        {/* Success — confirm + a little card preview, then auto-return home. */}
+        {step === 'success' && resolved && (
           <View style={[styles.section, styles.centered]}>
             <View style={styles.successRing}>
               <Text style={styles.successIcon}>✓</Text>
             </View>
             <Text style={styles.writeTitle}>Card written!</Text>
-            <Text style={styles.writeSubtitle}>Your NFC card is ready to share</Text>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { width: '100%' }]}
-              onPress={() => navigation.navigate('Card', { id: newCardId })}
-            >
-              <Text style={styles.primaryBtnText}>View card</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={reset}>
-              <Text style={styles.ghostBtn}>Write another card</Text>
+            <View style={styles.previewCard}>
+              {resolved.artwork_url ? (
+                <Image source={{ uri: resolved.artwork_url }} style={styles.previewArt} />
+              ) : (
+                <View style={[styles.previewArt, styles.previewArtEmpty]} />
+              )}
+              <View style={styles.previewMeta}>
+                <Text style={styles.previewType}>{resolved.content_type.toUpperCase()}</Text>
+                <Text style={styles.previewTitle} numberOfLines={2}>{resolved.title}</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => navigation.popToTop()}>
+              <Text style={styles.ghostBtn}>Done</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -255,15 +254,29 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   artwork: { width: '100%', aspectRatio: 1, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.05)' },
   resolvedType: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5, color: 'rgba(255,255,255,0.4)' },
-  resolvedTitle: { fontSize: 22, fontWeight: '700', color: 'white', letterSpacing: -0.5 },
+  resolvedTitle: { fontSize: 22, fontWeight: '700', color: 'white', letterSpacing: -0.5, textAlign: 'center' },
   resolvedMeta: { fontSize: 13, color: 'rgba(255,255,255,0.4)' },
-  nfcRing: {
-    width: 120, height: 120, borderRadius: 60,
+  // Tap-to-write graphic — stands in for album art at the same footprint until
+  // the real write animation lands.
+  tapSlot: {
+    width: '100%', aspectRatio: 1, borderRadius: 16,
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  nfcRingActive: { borderColor: 'rgba(255,255,255,0.7)' },
-  nfcIcon: { fontSize: 40, color: 'rgba(255,255,255,0.4)' },
+  tapSlotActive: { borderColor: 'rgba(255,255,255,0.7)', backgroundColor: 'rgba(255,255,255,0.08)' },
+  tapIcon: { fontSize: 72, color: 'rgba(255,255,255,0.45)' },
+  // Little card preview on the success screen.
+  previewCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16,
+    padding: 12, width: '100%', marginTop: 4,
+  },
+  previewArt: { width: 64, height: 64, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)' },
+  previewArtEmpty: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  previewMeta: { flex: 1, gap: 4 },
+  previewType: { fontSize: 10, fontWeight: '600', letterSpacing: 1.2, color: 'rgba(255,255,255,0.4)' },
+  previewTitle: { fontSize: 15, fontWeight: '600', color: 'white' },
   writeTitle: { fontSize: 20, fontWeight: '700', color: 'white', textAlign: 'center' },
   writeSubtitle: { fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', lineHeight: 20, maxWidth: 280 },
   successRing: {
