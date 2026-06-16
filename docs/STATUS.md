@@ -1,6 +1,6 @@
 # Eddi — Where We Are
 
-_Last updated: 2026-05-30_
+_Last updated: 2026-06-15_
 
 Source-of-truth snapshot. The web side (`eddi.audio`) is live; the current push
 is the React Native Android app toward production. See `docs/RUNBOOK.md` for how
@@ -16,6 +16,24 @@ to build/run and fixes for problems already hit.
   `POST /cards`, `POST /cards/{id}/events` all respond correctly.
 - **One DNS item open:** `api.eddi.audio` custom domain not set up; app + site use
   the raw API Gateway URL, which works.
+
+## Session log — 2026-06-15
+
+Share-sheet + write-flow night. Shipped + verified on-device:
+
+1. **Eddi is now a share-sheet target** (Spotify/Tidal/YouTube). Approach: a
+   manifest `ACTION_SEND`/`text/plain` intent-filter, plus `MainActivity`
+   rewriting the `ACTION_SEND` into `ACTION_VIEW` so RN's `Linking` delivers the
+   URL — **no new dependency, no native module.** See the "Share-sheet" section.
+2. **Shortened the write flow** to resolve → write → done (dropped the name
+   input + "Looks good" preview). Tap-to-write graphic is a placeholder for the
+   album art for now.
+3. **Built + installed the prod-signed release APK** on the Pixel and verified
+   end-to-end: shared a **Tidal album** from the share sheet → resolved → wrote.
+4. **Logged the follow-up** (album-art-on-resolve → "Writing card…" on NFC
+   contact) in the Notion Tasks DB + the action item below.
+
+Commit: `db68d26` on `fix/rn-react-dedupe-and-nfc-write`.
 
 ## Session log — 2026-05-30
 
