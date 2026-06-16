@@ -1,0 +1,26 @@
+# Eddi dev1 kiosk launcher — installed at ~/.config/labwc/autostart
+#
+# Hardened, self-healing Chromium kiosk:
+#  - waits for the static frontend (:3000) before launching
+#  - runs its profile + cache in /dev/shm (tmpfs / RAM) so it makes ZERO SD-card
+#    writes and never shows a "restore pages?" bubble (fresh profile each boot)
+#  - relaunches automatically if Chromium ever exits, so a crash can't leave a
+#    blank screen during a demo
+mkdir -p /dev/shm/eddi-kiosk
+(
+  while true; do
+    while ! curl -s http://localhost:3000 >/dev/null 2>&1; do sleep 1; done
+    chromium \
+      --kiosk --noerrdialogs --disable-infobars --no-first-run \
+      --disable-session-crashed-bubble --hide-crash-restore-bubble \
+      --check-for-update-interval=31536000 --disable-component-update \
+      --disable-features=Translate,TranslateUI \
+      --disable-background-networking \
+      --disable-pinch --overscroll-history-navigation=0 \
+      --autoplay-policy=no-user-gesture-required \
+      --user-data-dir=/dev/shm/eddi-kiosk \
+      --disk-cache-dir=/dev/shm/eddi-kiosk-cache \
+      http://localhost:3000
+    sleep 2
+  done
+) &

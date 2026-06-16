@@ -1,0 +1,13 @@
+[Unit]
+Description=NFC Player Frontend (static prod build)
+After=network.target
+
+[Service]
+User=dancalt
+WorkingDirectory=/home/dancalt/nfc-player/backend
+ExecStart=/usr/bin/python3 /home/dancalt/nfc-player/backend/serve_build.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
