@@ -1,10 +1,63 @@
 # Eddi — Where We Are
 
-_Last updated: 2026-06-15_
+_Last updated: 2026-06-18_
 
 Source-of-truth snapshot. The web side (`eddi.audio`) is live; the current push
 is the React Native Android app toward production. See `docs/RUNBOOK.md` for how
 to build/run and fixes for problems already hit.
+
+## Session log — 2026-06-17/18 (dev1: Spotify playback — the long way round)
+
+Long, painful session. The headline finding that matters most:
+
+> **librespot (and every fork: go-librespot, spotifyd, raspotify) — all
+> *unofficial* clients sharing one audio-key path — are refused audio keys on the
+> NEW `daniel@eddi.audio` Premium account** (`Service unavailable { audio key
+> error }`, identical across librespot 0.6/0.7/0.8). The **official Spotify Web
+> Playback SDK works** for the same account. So: **do not use librespot for Eddi
+> playback — use the official Web Playback SDK.** (Verified: sound plays from the
+> SDK device "Eddi". Likely a Spotify anti-abuse gate on new accounts × unofficial
+> clients.)
+
+We first migrated dev1 to **librespot Connect**, chased the audio-key failures for
+hours (version downgrades, rate-limit theories — all dead ends), then pivoted to
+the official SDK. Current deployed architecture (`device/dev1/`, on the Pi):
+
+- **Browser = official Web Playback SDK** (Chromium → PipeWire → Merus amp). State
+  comes from `player_state_changed` push events (no polling); controls are local
+  SDK methods. No "Tap to activate" gate (`activateElement()` + kiosk autoplay flag).
+- **Frontend makes ZERO direct `api.spotify.com` calls.** It talks only to the SDK
+  websocket and our backend (localhost). It registers its SDK device id with the
+  backend on 'ready' (`POST /spotify/device`).
+- **Backend (`app.py`) is the single Spotify-REST broker:** token, play-on-card-tap
+  (targets the EXACT registered SDK device id — never by name), queue, suggestions,
+  playlist — all through one 429-safe `spotify_request()` with caching.
+- **raspotify/librespot: stopped + disabled** (retired; binary still installed).
+
+Status: ✅ sound plays via the SDK (phone-initiated). ⏳ full card-tap→backend→sound
+end-to-end pending — a self-inflicted **Web API 429 lockout** is mid-cooldown
+(see below); it clears and then the card path can be verified.
+
+**Code is deployed to the Pi but UNCOMMITTED in the working tree** (`device/dev1/backend/app.py`,
+`device/dev1/frontend/src/SpotifyPlayer.js`).
+
+### WiFi — SOLVED (don't "just use ethernet")
+dev1 WiFi was dropping hard (24% packet loss, 55 KB/s). Root cause = **brcmfmac
+band-steering / firmware roaming** (it sat on the weaker 5GHz AP with roaming on).
+Fix, persistent and verified (0.5% loss, 3.75 MB/s): `/etc/modprobe.d/brcmfmac.conf`
+= `options brcmfmac roamoff=1 feature_disable=0x82000`, **plus** lock the band:
+`nmcli con modify "Altbach Seattle" 802-11-wireless.band bg`. Also **broken IPv6**
+on this network was poisoning DNS/connections — disabled via
+`/etc/sysctl.d/99-disable-ipv6.conf`. See RUNBOOK.
+
+### Self-inflicted gotchas (now fixed)
+- The display-only build polled `/me/player` **every 1s**; over hours it tripped a
+  **~15h Web API 429 lockout** (`Retry-After` ≈ 53705s). Fix: SDK pushes state, and
+  all REST goes through the backend broker. (Was still decaying as of session end.)
+- Repeated `pkill chromium` churn spawned **two kiosk loops → two SDK "Eddi" devices**.
+  A reboot collapses to one (labwc autostart launches one loop on boot).
+- "Eddi Audio" in the device list is NOT the Pi — it's a laptop signed into the
+  same account (Spotify web player). Not a bug.
 
 ## TL;DR
 

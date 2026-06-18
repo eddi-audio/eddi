@@ -158,6 +158,31 @@ playlists and albums/tracks resolve. Known limitation, not a bug.
 SSO creds don't propagate through the `--profile` flag in CDK. Run
 `eval $(aws configure export-credentials --profile eddi --format env)` first.
 
+### 🔴 dev1 WiFi drops hard (high packet loss / SSH drops / streaming starves)
+Pi 5 `brcmfmac` band-steering: it roams onto the weaker 5GHz AP with firmware
+roaming on. NOT power (PMIC showed 4.98V), NOT a driver crash (clean dmesg).
+Fix (persistent, took 24%→0.5% loss): `/etc/modprobe.d/brcmfmac.conf` →
+`options brcmfmac roamoff=1 feature_disable=0x82000`, **plus** lock the band:
+`sudo nmcli con modify "Altbach Seattle" 802-11-wireless.band bg`. Reboot to
+apply (a live `rmmod brcmfmac` can lock you out of the keyboard-less box).
+
+### 🔴 dev1: this network's IPv6 is broken (poisons DNS + Spotify connects)
+DNS returns IPv6-only addrs the Pi can't route → `apresolve`/key fetches time
+out. Disable IPv6: `/etc/sysctl.d/99-disable-ipv6.conf` with
+`net.ipv6.conf.{all,default,wlan0}.disable_ipv6 = 1`.
+
+### 🔴 dev1 Spotify: librespot/raspotify won't play (`audio key error`)
+librespot (& all unofficial forks) are **refused audio keys on the new
+`daniel@eddi.audio` account** — all versions, not a sink/rate-limit/version bug.
+**Use the official Web Playback SDK** (browser) instead; it plays fine. Full
+detail in the `project-dev1-audio` memory + STATUS 2026-06-17/18 log.
+
+### 🔴 dev1: Spotify Web API 429 with a HUGE `Retry-After` (hours)
+The eddi.audio app is in Dev Mode (low quota). A frequent poll (e.g. the kiosk's
+old 1s `/me/player`) trips a multi-hour lockout. No manual reset — the
+`Retry-After` header counts down on its own. Fix the polling: the frontend must
+make ZERO direct Spotify REST calls; route everything through the backend broker.
+
 ---
 
 ## Open / not-yet-done

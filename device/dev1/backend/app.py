@@ -57,6 +57,10 @@ current_card_meta = None
 _card_cache = {}
 _card_cache_lock = threading.Lock()
 
+# Cache of Spotify item names looked up for legacy (non-Eddi) cards, keyed by
+# spotify_uri, so the frequently-polled /nfc/current doesn't re-hit Spotify.
+_name_cache = {}
+
 
 def to_spotify_uri(value):
     """Normalise a Spotify share URL or URI to spotify:type:id, or None."""
@@ -195,6 +199,153 @@ def get_access_token():
     return _cached_token or os.getenv('SPOTIFY_ACCESS_TOKEN')
 
 
+# ─── Playback control ────────────────────────────────────────────────────────
+# Audio is rendered by the OFFICIAL Spotify Web Playback SDK in the kiosk browser
+# (Chromium → PipeWire → amp); we use the official SDK because librespot (an
+# unofficial client) is refused audio keys on this new account. The backend
+# starts/stops playback via the Spotify Web API, targeting the EXACT SDK device
+# id the frontend registers (see /spotify/device) — never by matching a device
+# *name*, because stale offline registrations (old SDK sessions, the retired
+# librespot) linger in Spotify's device list under the same name "Eddi" and
+# targeting one by name would play to a dead device.
+
+# Remember where each card was when it was removed so re-placing the same card
+# resumes instead of restarting. Keyed by spotify_uri.
+_resume_state = {}
+_resume_lock = threading.Lock()
+RESUME_TTL = 6 * 60 * 60  # seconds a saved position stays valid
+
+
+def _spotify_headers():
+    return {'Authorization': f'Bearer {get_access_token()}',
+            'Content-Type': 'application/json'}
+
+
+# ─── Browser Web Playback SDK device registration ───────────────────────────
+# The audio renderer is the OFFICIAL Spotify Web Playback SDK running in the
+# kiosk browser (Chromium → PipeWire → amp). We use the official SDK because
+# librespot (an unofficial client) is refused audio keys on this new account.
+# The frontend POSTs its SDK device id to /spotify/device on 'ready'; the backend
+# targets that device for play/pause.
+_sdk_device_id = None
+_sdk_lock = threading.Lock()
+
+
+def get_target_device():
+    """The exact browser SDK device id the frontend registered, or None if the
+    kiosk hasn't reported 'ready' yet. We never fall back to name matching — a
+    name like "Eddi" can resolve to a stale/offline zombie device."""
+    with _sdk_lock:
+        return _sdk_device_id
+
+
+# ─── Rate-limit guard ────────────────────────────────────────────────────────
+# Spotify dev-mode apps get a rolling-window quota; exceeding it returns 429 with
+# a Retry-After (which can be HOURS). All backend→Spotify calls go through
+# spotify_request(), which honors the cooldown and refuses to call again until it
+# passes — so a burst can never escalate into a multi-hour lockout. (The frontend
+# no longer calls Spotify directly at all; that 1s /me/player poll is what caused
+# the original lockout.)
+_rate_limited_until = 0
+
+
+def spotify_request(method, url, **kwargs):
+    """
+    Single choke point for backend→Spotify Web API calls. Honors 429/Retry-After.
+    Returns a requests.Response, or None if we're in a cooldown or the call errored
+    (callers should serve cached/last-known data in that case).
+    """
+    global _rate_limited_until
+    now = time.time()
+    if now < _rate_limited_until:
+        print(f"[spotify] in 429 cooldown ({int(_rate_limited_until - now)}s left); skipping {method} {url}", flush=True)
+        return None
+    kwargs.setdefault('timeout', 8)
+    headers = kwargs.pop('headers', None) or _spotify_headers()
+    try:
+        resp = requests.request(method, url, headers=headers, **kwargs)
+    except Exception as e:
+        print(f"[spotify] {method} {url} error: {e}", flush=True)
+        return None
+    if resp.status_code == 429:
+        retry = int(resp.headers.get('Retry-After', '30'))
+        _rate_limited_until = time.time() + retry
+        print(f"[spotify] 429 — backing off {retry}s", flush=True)
+    return resp
+
+
+def play_on_connect(spotify_uri):
+    """
+    Start playback of a card's URI on the target device — the browser Web Playback
+    SDK device the frontend registered (preferred), else name-based discovery.
+    Honours a saved resume position if the same card was just removed.
+    """
+    device_id = get_target_device()
+    if not device_id:
+        print("No target device registered yet (frontend SDK not ready)", flush=True)
+        return
+
+    is_track = spotify_uri.startswith('spotify:track:')
+    body = {'uris': [spotify_uri]} if is_track else {'context_uri': spotify_uri}
+
+    with _resume_lock:
+        saved = _resume_state.pop(spotify_uri, None)
+    if saved and (time.time() - saved['ts']) < RESUME_TTL:
+        if is_track:
+            body = {'uris': [spotify_uri], 'position_ms': saved['position_ms']}
+        else:
+            body = {'context_uri': spotify_uri,
+                    'offset': {'uri': saved['track_uri']},
+                    'position_ms': saved['position_ms']}
+
+    resp = spotify_request(
+        'PUT', f'https://api.spotify.com/v1/me/player/play?device_id={device_id}',
+        data=json.dumps(body))
+    if resp is None:
+        return  # rate-limit cooldown or network error
+    if resp.status_code in (202, 204):
+        print(f"[Play] {spotify_uri} on {device_id}", flush=True)
+    elif resp.status_code == 404:
+        # Stale SDK device id (browser reloaded) — drop it; the frontend re-registers
+        # on its next 'ready' and the next card tap will land.
+        print("[Play] 404 — target device stale; clearing (frontend will re-register)", flush=True)
+        global _sdk_device_id
+        with _sdk_lock:
+            _sdk_device_id = None
+    else:
+        print(f"[Play] failed {resp.status_code}: {resp.text}", flush=True)
+
+
+def save_resume_and_pause(spotify_uri):
+    """
+    Capture the current playback position for resume (keyed by the removed
+    card's URI), then pause the Connect device via the Web API.
+    """
+    resp = spotify_request('GET', 'https://api.spotify.com/v1/me/player')
+    if resp is not None and resp.status_code == 200 and resp.content:
+        d = resp.json()
+        item = d.get('item') or {}
+        if spotify_uri and item.get('uri'):
+            with _resume_lock:
+                _resume_state[spotify_uri] = {
+                    'track_uri': item['uri'],
+                    'position_ms': d.get('progress_ms', 0),
+                    'ts': time.time(),
+                }
+    pr = spotify_request('PUT', 'https://api.spotify.com/v1/me/player/pause')
+    if pr is not None:
+        print(f"[Pause] status {pr.status_code}", flush=True)
+
+
+def _play_async(uri):
+    """Fire playback in a thread so the reader's POST /nfc/update returns fast."""
+    threading.Thread(target=play_on_connect, args=(uri,), daemon=True).start()
+
+
+def _pause_async(uri):
+    threading.Thread(target=save_resume_and_pause, args=(uri,), daemon=True).start()
+
+
 def load_card_mappings():
     """Load the card UID → Spotify URI mapping file (card_mappings.json)."""
     try:
@@ -242,30 +393,22 @@ def get_current_card():
     name = card_data.get('name', 'Unknown')
     uri_type = card_data.get('type', 'playlist')
 
-    # If the card has a URI but we don't know its name yet, ask Spotify
+    # If the card has a URI but no saved name, look it up ONCE (cached) via the
+    # 429-safe path — /nfc/current is polled frequently, so we must not re-hit
+    # Spotify each time.
     if spotify_uri and name == 'Unknown':
-        try:
-            token = get_access_token()
-            print(f"Token: {token[:20]}...", flush=True)
-            # Parse spotify:type:id into its components
+        cached = _name_cache.get(spotify_uri)
+        if cached:
+            name, uri_type = cached
+        else:
             parts = spotify_uri.replace('spotify:', '').split(':')
             if len(parts) >= 2:
                 uri_type = parts[0]   # e.g. "playlist", "album", "show"
                 item_id = parts[1]
-
-                # Fetch the item's metadata from the Spotify Web API
-                endpoint = f'https://api.spotify.com/v1/{uri_type}s/{item_id}'
-                print(f"Fetching: {endpoint}", flush=True)
-                response = requests.get(endpoint, headers={'Authorization': f'Bearer {token}'})
-                print(f"Response: {response.status_code}", flush=True)
-                if response.status_code == 200:
-                    data = response.json()
-                    name = data.get('name', 'Unknown')
-                    print(f"Got name: {name}", flush=True)
-                else:
-                    print(f"Error response: {response.text}", flush=True)
-        except Exception as e:
-            print(f"Error fetching Spotify data: {e}", flush=True)
+                r = spotify_request('GET', f'https://api.spotify.com/v1/{uri_type}s/{item_id}')
+                if r is not None and r.status_code == 200:
+                    name = r.json().get('name', 'Unknown')
+                    _name_cache[spotify_uri] = (name, uri_type)
 
     return jsonify({
         "card_present": True,
@@ -284,6 +427,7 @@ def update_card():
     """
     global current_card_uid, current_spotify_uri, current_card_meta
     data = request.json
+    prev_uri = current_spotify_uri  # remember for resume-capture on removal
 
     # New-format Eddi card: resolve the card id via the Eddi API.
     eddi_card_id = data.get('eddi_card_id')
@@ -293,6 +437,7 @@ def update_card():
             current_card_uid = data.get('card_uid') or eddi_card_id
             current_spotify_uri = resolved['spotify_uri']
             current_card_meta = resolved
+            _play_async(resolved['spotify_uri'])  # start audio on the Connect device
             return jsonify({"status": "success", "resolved": True})
         # Couldn't resolve — surface no playable content rather than stale state.
         current_card_uid = data.get('card_uid')
@@ -300,10 +445,21 @@ def update_card():
         current_card_meta = None
         return jsonify({"status": "error", "message": "card not resolved"}), 502
 
-    # Legacy path: a direct Spotify URI off the tag (or a removal: both None).
-    current_card_uid = data.get('card_uid')
-    current_spotify_uri = data.get('spotify_uri')
+    # Legacy path: a direct Spotify URI off the tag, a UID-only mapped card, or a
+    # removal (both card_uid and spotify_uri None).
+    card_uid = data.get('card_uid')
+    uri = data.get('spotify_uri')
+    if card_uid and not uri:
+        # No URI on the tag — fall back to a saved card_mappings.json entry.
+        uri = load_card_mappings().get(card_uid, {}).get('uri')
+    current_card_uid = card_uid
+    current_spotify_uri = uri
     current_card_meta = None
+
+    if card_uid is None:
+        _pause_async(prev_uri)  # removal — save position and pause
+    elif uri:
+        _play_async(uri)        # placement — start audio on the Connect device
     return jsonify({"status": "success"})
 
 
@@ -335,11 +491,95 @@ def map_card():
 
 @app.route('/spotify/token')
 def get_token():
-    """Return the cached Spotify access token to the frontend."""
+    """Return the cached Spotify access token to the frontend (the SDK's getOAuthToken source)."""
     token = get_access_token()
     if token:
         return jsonify({"access_token": token})
     return jsonify({"error": "No refresh token configured"}), 401
+
+
+# ─── Spotify broker for the frontend ─────────────────────────────────────────
+# The frontend (running the official Web Playback SDK) talks ONLY to these
+# localhost endpoints — it makes ZERO direct api.spotify.com REST calls. The 1s
+# /me/player poll it used to do is gone (the SDK pushes state via events); these
+# cover the few remaining REST needs (register device, play a chosen track, queue,
+# suggestions, playlist edits), all funnelled through the 429-safe spotify_request.
+
+# Tiny short-TTL response cache so repeat fetches (and the 429 cooldown) serve
+# last-known data instead of re-hitting Spotify.
+_proxy_cache = {}
+_PROXY_TTL = 10  # seconds
+
+
+def _cached(key, fetch):
+    now = time.time()
+    hit = _proxy_cache.get(key)
+    if hit and now - hit[0] < _PROXY_TTL:
+        return hit[1]
+    val = fetch()
+    if val is not None:
+        _proxy_cache[key] = (now, val)
+    elif hit:
+        return hit[1]  # stale-but-better-than-nothing during cooldown/error
+    return val
+
+
+@app.route('/spotify/device', methods=['POST'])
+def register_device():
+    """Frontend registers/clears its Web Playback SDK device id (on 'ready'/'not_ready')."""
+    global _sdk_device_id
+    data = request.get_json(silent=True) or {}
+    with _sdk_lock:
+        _sdk_device_id = data.get('device_id') or None
+    print(f"[SDK] device registered: {_sdk_device_id}", flush=True)
+    return jsonify({"status": "ok", "device_id": _sdk_device_id})
+
+
+@app.route('/spotify/play', methods=['POST'])
+def proxy_play():
+    """Play chosen tracks/context on the registered SDK device (queue/suggestion clicks)."""
+    device_id = get_target_device()
+    if not device_id:
+        return jsonify({"error": "no device"}), 409
+    body = request.get_json(silent=True) or {}
+    resp = spotify_request(
+        'PUT', f'https://api.spotify.com/v1/me/player/play?device_id={device_id}',
+        data=json.dumps(body))
+    if resp is None:
+        return jsonify({"error": "rate-limited or unavailable"}), 503
+    return ('', resp.status_code)
+
+
+@app.route('/spotify/queue')
+def proxy_queue():
+    """Proxy GET /me/player/queue (next-up list)."""
+    def fetch():
+        r = spotify_request('GET', 'https://api.spotify.com/v1/me/player/queue')
+        return r.json() if (r is not None and r.status_code == 200) else None
+    return jsonify(_cached('queue', fetch) or {"queue": []})
+
+
+@app.route('/spotify/suggestions')
+def proxy_suggestions():
+    """Proxy an artist's top tracks (used as 'suggested')."""
+    artist_id = request.args.get('artist_id', '')
+    if not artist_id:
+        return jsonify({"tracks": []})
+
+    def fetch():
+        r = spotify_request('GET', f'https://api.spotify.com/v1/artists/{artist_id}/top-tracks')
+        return r.json() if (r is not None and r.status_code == 200) else None
+    return jsonify(_cached(f'sugg:{artist_id}', fetch) or {"tracks": []})
+
+
+@app.route('/spotify/playlist/<playlist_id>/tracks', methods=['POST', 'DELETE'])
+def proxy_playlist(playlist_id):
+    """Add/remove a track to/from a playlist (heart button)."""
+    url = f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks'
+    resp = spotify_request(request.method, url, data=json.dumps(request.get_json(silent=True) or {}))
+    if resp is None:
+        return jsonify({"error": "rate-limited or unavailable"}), 503
+    return ('', resp.status_code)
 
 
 @app.route('/status')

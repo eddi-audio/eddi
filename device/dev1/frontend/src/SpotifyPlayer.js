@@ -1,33 +1,51 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function SpotifyPlayer({ token, currentCard }) {
-  const [player, setPlayer] = useState(null);
+// Official Spotify Web Playback SDK player. We use the OFFICIAL SDK (not
+// librespot) because librespot — an unofficial client — is refused audio keys
+// on the new eddi.audio account. The SDK runs in this kiosk browser, registers
+// as a Connect device, and renders audio (Chromium → PipeWire → amp).
+//
+// Architecture: this component makes ZERO direct api.spotify.com REST calls.
+//  - STATE comes from the SDK's `player_state_changed` push events (no polling).
+//    (The 1s /me/player poll the display-only build used is what tripped the
+//    Web-API rate-limit lockout — gone now.)
+//  - CONTROLS are local SDK methods (togglePlay/next/previous/setVolume).
+//  - Everything else (the device id, play-a-chosen-track, queue, suggestions,
+//    playlist edits) goes through OUR backend at localhost:5000, which is the
+//    single, rate-limit-aware talker to Spotify. Card taps are played by the
+//    backend onto the device id we register below.
+
+const API = 'http://localhost:5000';
+
+function SpotifyPlayer({ currentCard }) {
   const [deviceId, setDeviceId] = useState(null);
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPaused, setIsPaused] = useState(true);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [activated, setActivated] = useState(false);
-  const [volume, setVolume] = useState(0.15);
+  const [volume, setVolume] = useState(0.5);
   const [queue, setQueue] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [toast, setToast] = useState(null);
   const [trackInPlaylist, setTrackInPlaylist] = useState(false);
   const [addedToPlaylist, setAddedToPlaylist] = useState(new Set());
 
-  // Refs persist across renders without triggering re-renders
-  const lastCardRef = useRef(null);
-  const intervalRef = useRef(null);
   const playerRef = useRef(null);
   const deviceIdRef = useRef(null);
+  const tickRef = useRef(null);
   const toastTimerRef = useRef(null);
   const lastFetchedTrackRef = useRef(null);
-  const queueFetchTimerRef = useRef(null); // delayed queue fetch after new card play
-  const currentTrackRef = useRef(null);    // always-current track (avoids stale closures)
-  const positionRef = useRef(0);           // always-current position in ms
-  const lastPlaybackStateRef = useRef(null); // { cardUri, trackUri, positionMs } saved on removal
 
-  // ─── Spotify Web Playback SDK Initialisation ────────────────────────────────
+  // ─── Register/clear our SDK device id with the backend ──────────────────────
+  const registerDevice = (id) => {
+    fetch(`${API}/spotify/device`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: id }),
+    }).catch(() => {});
+  };
+
+  // ─── Web Playback SDK init ──────────────────────────────────────────────────
   useEffect(() => {
     const script = document.createElement('script');
     script.src = 'https://sdk.scdn.co/spotify-player.js';
@@ -36,131 +54,89 @@ function SpotifyPlayer({ token, currentCard }) {
 
     window.onSpotifyWebPlaybackSDKReady = () => {
       const player = new window.Spotify.Player({
-        name: 'NFC Spotify Player',
+        name: 'Eddi',
         getOAuthToken: async cb => {
-          const res = await fetch('http://localhost:5000/spotify/token');
-          const data = await res.json();
-          cb(data.access_token);
+          try {
+            const res = await fetch(`${API}/spotify/token`);
+            const data = await res.json();
+            cb(data.access_token);
+          } catch (e) { console.error('token fetch failed', e); }
         },
-        volume: 0.15
+        volume: 0.5,
       });
 
       player.addListener('ready', ({ device_id }) => {
-        console.log('Ready with Device ID', device_id);
+        console.log('SDK ready, device', device_id);
         setDeviceId(device_id);
         deviceIdRef.current = device_id;
+        registerDevice(device_id);           // backend will play card taps here
+        try { player.activateElement(); } catch (e) {}  // satisfy autoplay (kiosk allows it)
       });
 
       player.addListener('not_ready', ({ device_id }) => {
-        console.log('Device went offline:', device_id);
+        console.log('SDK not_ready', device_id);
         deviceIdRef.current = null;
-        setTimeout(() => {
-          if (playerRef.current) {
-            console.log('Reconnecting player...');
-            playerRef.current.connect();
-          }
-        }, 3000);
+        registerDevice(null);
+        setTimeout(() => { if (playerRef.current) playerRef.current.connect(); }, 3000);
       });
 
-      player.addListener('initialization_error', ({ message }) => console.error('Initialization Error:', message));
-      player.addListener('authentication_error', ({ message }) => console.error('Authentication Error:', message));
-      player.addListener('account_error', ({ message }) => console.error('Account Error:', message));
-      player.addListener('playback_error', ({ message }) => console.error('Playback Error:', message));
+      ['initialization_error', 'authentication_error', 'account_error', 'playback_error']
+        .forEach(ev => player.addListener(ev, ({ message }) => console.error(ev, message)));
 
       player.addListener('player_state_changed', state => {
         if (!state) return;
-        currentTrackRef.current = state.track_window.current_track;
-        positionRef.current = state.position;
-        setCurrentTrack(state.track_window.current_track);
+        const track = state.track_window.current_track;
+        setCurrentTrack(track);
         setIsPaused(state.paused);
         setPosition(state.position);
         setDuration(state.duration);
 
-        if (intervalRef.current) clearInterval(intervalRef.current);
+        if (tickRef.current) clearInterval(tickRef.current);
         if (!state.paused) {
-          intervalRef.current = setInterval(() => {
-            positionRef.current += 1000;
-            setPosition(prev => prev + 1000);
+          tickRef.current = setInterval(() => {
+            setPosition(prev => (state.duration ? Math.min(prev + 1000, state.duration) : prev + 1000));
           }, 1000);
         }
       });
 
       player.connect();
-      setPlayer(player);
       playerRef.current = player;
+
+      // On reload/close, proactively disconnect so this device drops out of
+      // Spotify's Connect list immediately instead of lingering as an offline
+      // "Eddi" zombie (which is what stacks up to "2 Eddis" across reloads).
+      window.addEventListener('beforeunload', () => {
+        registerDevice(null);
+        try { player.disconnect(); } catch (e) {}
+      });
     };
 
     return () => {
-      if (player) player.disconnect();
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (playerRef.current) playerRef.current.disconnect();
+      if (tickRef.current) clearInterval(tickRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Reconnect Watchdog ──────────────────────────────────────────────────────
+  // ─── Liveness watchdog ──────────────────────────────────────────────────────
+  // The browser SDK device is the audio renderer; recover if it silently goes
+  // offline. Every minute, if we've LOST the device id, try to reconnect; if it
+  // stays gone for ~5 min, reload the page to fully re-init the SDK. Recovery is
+  // keyed on the device being GONE — never on "no recent events", because
+  // player_state_changed is silent during steady playback, so an events-based
+  // check would false-trigger a reload mid-podcast and cut the audio. Empty deps
+  // so the streak persists (it isn't reset by re-rendering on card changes).
   useEffect(() => {
-    if (!activated) return;
-    const reconnectCheck = setInterval(() => {
-      if (playerRef.current && !deviceIdRef.current) {
-        console.log('Watchdog: no device ID, reconnecting...');
-        playerRef.current.connect();
-      }
-    }, 5 * 60 * 1000);
-    return () => clearInterval(reconnectCheck);
-  }, [activated]);
+    let deadMinutes = 0;
+    const id = setInterval(() => {
+      if (deviceIdRef.current) { deadMinutes = 0; return; }
+      deadMinutes += 1;
+      if (playerRef.current) playerRef.current.connect();
+      if (deadMinutes >= 5) window.location.reload();
+    }, 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  // ─── Card Play Trigger ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!deviceId || !currentCard) return;
-    const cardUri = currentCard.spotify_uri;
-    if (cardUri && cardUri !== lastCardRef.current) {
-      console.log('[Card] New card detected:', currentCard.name, '|', cardUri);
-      lastCardRef.current = cardUri;
-      lastFetchedTrackRef.current = null;
-      playUri(cardUri);
-    }
-  }, [currentCard, deviceId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Card Removal Handler ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!currentCard) {
-      console.log('[Card] Removed — pausing');
-      if (queueFetchTimerRef.current) clearTimeout(queueFetchTimerRef.current);
-
-      // Save position so the same card can resume where it left off
-      if (lastCardRef.current && currentTrackRef.current) {
-        lastPlaybackStateRef.current = {
-          cardUri: lastCardRef.current,
-          trackUri: currentTrackRef.current.uri,
-          positionMs: positionRef.current,
-        };
-        console.log('[Card] Saved state for resume:', lastPlaybackStateRef.current.cardUri, '@', positionRef.current);
-      }
-
-      lastCardRef.current = null;
-      lastFetchedTrackRef.current = null;
-      setQueue([]);
-      setSuggestions([]);
-
-      // Primary: pause via Spotify Web API — authoritative, works regardless of SDK state.
-      // The SDK's player.pause() is a local command that silently fails when the
-      // WebSocket connection is degraded. The Web API goes directly to Spotify's server.
-      fetch('http://localhost:5000/spotify/token')
-        .then(r => r.json())
-        .then(({ access_token }) =>
-          fetch('https://api.spotify.com/v1/me/player/pause', {
-            method: 'PUT',
-            headers: { 'Authorization': `Bearer ${access_token}` }
-          })
-        )
-        .then(r => console.log('[Card] Web API pause status:', r.status))
-        .catch(e => console.error('[Card] Web API pause error:', e));
-
-      // Secondary: also pause via SDK to keep local state in sync.
-      if (playerRef.current) playerRef.current.pause();
-    }
-  }, [currentCard]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Fetch Queue & Suggestions on Track Change ───────────────────────────────
+  // ─── Queue + suggestions on track change (via backend proxy) ────────────────
   useEffect(() => {
     if (!currentTrack || currentTrack.id === lastFetchedTrackRef.current) return;
     lastFetchedTrackRef.current = currentTrack.id;
@@ -170,204 +146,85 @@ function SpotifyPlayer({ token, currentCard }) {
     fetchSuggestions(currentTrack);
   }, [currentTrack]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Token Helper ─────────────────────────────────────────────────────────────
-  const getFreshToken = async () => {
-    const res = await fetch('http://localhost:5000/spotify/token');
-    const data = await res.json();
-    return data.access_token;
-  };
-
-  // ─── Playback ────────────────────────────────────────────────────────────────
-  const playUri = async (uri) => {
-    // Check if we have a saved position for this exact card URI
-    const saved = lastPlaybackStateRef.current;
-    const resuming = saved?.cardUri === uri;
-    lastPlaybackStateRef.current = null; // consume — only resume once
-
-    // Tracks must be played via `uris`; context_uri only works for
-    // playlists/albums/artists/shows (Spotify rejects a track context_uri).
-    const isTrack = uri.startsWith('spotify:track:');
-    const body = isTrack
-      ? (resuming ? { uris: [uri], position_ms: saved.positionMs } : { uris: [uri] })
-      : (resuming ? { context_uri: uri, offset: { uri: saved.trackUri }, position_ms: saved.positionMs } : { context_uri: uri });
-
-    console.log('[Play]', resuming ? `Resuming ${saved.trackUri} @${saved.positionMs}ms` : `Starting: ${uri}`, '| device:', deviceId);
-    try {
-      const freshToken = await getFreshToken();
-      const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-        method: 'PUT',
-        body: JSON.stringify(body),
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${freshToken}` }
-      });
-      if (response.ok) {
-        console.log('[Play] Success — scheduling queue fetch in 2s');
-        // Delay the queue fetch so Spotify's server has time to populate the
-        // new context's queue before we ask for it. Fetching immediately on
-        // player_state_changed races against Spotify's backend and returns stale data.
-        if (queueFetchTimerRef.current) clearTimeout(queueFetchTimerRef.current);
-        queueFetchTimerRef.current = setTimeout(() => fetchQueue(), 2000);
-      } else {
-        const error = await response.text();
-        console.error('[Play] Failed:', response.status, error);
-        if (lastCardRef.current === uri) lastCardRef.current = null;
-      }
-    } catch (err) {
-      console.error('[Play] Error:', err);
-      if (lastCardRef.current === uri) lastCardRef.current = null;
-    }
-  };
-
-  // ─── Queue Fetch ─────────────────────────────────────────────────────────────
   const fetchQueue = async () => {
-    console.log('[Queue] Fetching...');
     try {
-      const token = await getFreshToken();
-      const res = await fetch('https://api.spotify.com/v1/me/player/queue', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      console.log('[Queue] Response status:', res.status);
-      if (res.ok) {
-        const data = await res.json();
-        console.log('[Queue] Tracks received:', data.queue?.length ?? 0);
-        setQueue(data.queue || []);
-      } else {
-        console.error('[Queue] Error response:', await res.text());
-      }
-    } catch (err) {
-      console.error('[Queue] Fetch error:', err);
-    }
+      const res = await fetch(`${API}/spotify/queue`);
+      const data = await res.json();
+      setQueue(data.queue || []);
+    } catch (e) { /* backend serves cached/last-known */ }
   };
 
-  // ─── Suggestions Fetch ───────────────────────────────────────────────────────
-  // /v1/recommendations is deprecated for apps created after Nov 2024 (returns 404).
-  // Instead, fetch the current artist's top tracks and exclude the playing track.
   const fetchSuggestions = async (track) => {
     const artistId = track.artists?.[0]?.uri?.split(':')[2];
-    console.log('[Suggest] Fetching top tracks for artist:', track.artists?.[0]?.name, artistId);
     if (!artistId) return;
     try {
-      const token = await getFreshToken();
-      const res = await fetch(`https://api.spotify.com/v1/artists/${artistId}/top-tracks`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      console.log('[Suggest] Response status:', res.status);
-      if (res.ok) {
-        const data = await res.json();
-        const filtered = (data.tracks || []).filter(t => t.uri !== track.uri).slice(0, 8);
-        console.log('[Suggest] Tracks received:', filtered.length);
-        setSuggestions(filtered);
-      } else {
-        console.error('[Suggest] Error response:', await res.text());
-      }
-    } catch (err) {
-      console.error('[Suggest] Fetch error:', err);
-    }
+      const res = await fetch(`${API}/spotify/suggestions?artist_id=${artistId}`);
+      const data = await res.json();
+      setSuggestions((data.tracks || []).filter(t => t.uri !== track.uri).slice(0, 8));
+    } catch (e) { /* ignore */ }
   };
 
-  // ─── Toast ────────────────────────────────────────────────────────────────────
+  // ─── Controls — local SDK methods (no REST) ─────────────────────────────────
+  const togglePlay = () => { setIsPaused(p => !p); if (playerRef.current) playerRef.current.togglePlay(); };
+  const skipNext = () => { if (playerRef.current) playerRef.current.nextTrack(); };
+  const skipPrevious = () => { if (playerRef.current) playerRef.current.previousTrack(); };
+  const handleVolume = (e) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    if (playerRef.current) playerRef.current.setVolume(val);
+  };
+
+  // ─── Play a chosen track (queue/suggestion clicks) — via backend proxy ──────
+  const backendPlay = (body) => {
+    fetch(`${API}/spotify/play`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(e => console.error('play proxy error', e));
+  };
+  const playQueueTrack = (track) => {
+    if (!currentCard?.spotify_uri) return;
+    backendPlay({ context_uri: currentCard.spotify_uri, offset: { uri: track.uri } });
+  };
+  const playSingleTrack = (track) => backendPlay({ uris: [track.uri] });
+
+  // ─── Toast ────────────────────────────────────────────────────────────────
   const showToast = (message, onUndo) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, onUndo });
     toastTimerRef.current = setTimeout(() => setToast(null), 4000);
   };
 
-  // ─── Playlist Management ─────────────────────────────────────────────────────
-  const addTrackToPlaylist = async (playlistId, trackUri, trackName) => {
+  // ─── Playlist add/remove — via backend proxy ────────────────────────────────
+  const playlistEdit = async (method, playlistId, trackUri, trackName, onDone) => {
     try {
-      const token = await getFreshToken();
-      const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uris: [trackUri] })
+      const res = await fetch(`${API}/spotify/playlist/${playlistId}/tracks`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(method === 'DELETE' ? { tracks: [{ uri: trackUri }] } : { uris: [trackUri] }),
       });
-      if (res.ok) {
-        if (trackUri === currentTrack?.uri) setTrackInPlaylist(true);
-        setAddedToPlaylist(prev => new Set(prev).add(trackUri));
-        showToast(`Added "${trackName}"`, () => removeTrackFromPlaylist(playlistId, trackUri, trackName));
-      }
-    } catch (err) {
-      console.error('Failed to add track:', err);
-    }
+      if (res.ok || res.status === 200 || res.status === 201) onDone();
+    } catch (e) { console.error('playlist edit error', e); }
   };
-
-  const removeTrackFromPlaylist = async (playlistId, trackUri, trackName) => {
-    try {
-      const token = await getFreshToken();
-      const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracks: [{ uri: trackUri }] })
-      });
-      if (res.ok) {
-        if (trackUri === currentTrack?.uri) setTrackInPlaylist(false);
-        setAddedToPlaylist(prev => { const next = new Set(prev); next.delete(trackUri); return next; });
-        showToast(`Removed "${trackName}"`, () => addTrackToPlaylist(playlistId, trackUri, trackName));
-      }
-    } catch (err) {
-      console.error('Failed to remove track:', err);
-    }
-  };
-
-  // ─── Play Track from Queue (within current context) ─────────────────────────
-  const playQueueTrack = async (track) => {
-    if (!currentCard?.spotify_uri) return;
-    console.log('[Queue] Playing track:', track.name);
-    try {
-      const token = await getFreshToken();
-      await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ context_uri: currentCard.spotify_uri, offset: { uri: track.uri } }),
-      });
-    } catch (err) {
-      console.error('[Queue] Play track error:', err);
-    }
-  };
-
-  // ─── Play Single Track (suggestions — not within a context) ──────────────────
-  const playSingleTrack = async (track) => {
-    console.log('[Suggest] Playing:', track.name);
-    try {
-      const token = await getFreshToken();
-      await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ uris: [track.uri] }),
-      });
-    } catch (err) {
-      console.error('[Suggest] Play error:', err);
-    }
-  };
-
-  // ─── Player Controls ─────────────────────────────────────────────────────────
-  const togglePlay = () => { if (player) player.togglePlay(); };
-  const skipNext = () => { if (player) player.nextTrack(); };
-  const skipPrevious = () => { if (player) player.previousTrack(); };
-
-  const handleVolume = (e) => {
-    const val = parseFloat(e.target.value);
-    setVolume(val);
-    if (player) player.setVolume(val);
-  };
+  const addTrackToPlaylist = (playlistId, trackUri, trackName) =>
+    playlistEdit('POST', playlistId, trackUri, trackName, () => {
+      if (trackUri === currentTrack?.uri) setTrackInPlaylist(true);
+      setAddedToPlaylist(prev => new Set(prev).add(trackUri));
+      showToast(`Added "${trackName}"`, () => removeTrackFromPlaylist(playlistId, trackUri, trackName));
+    });
+  const removeTrackFromPlaylist = (playlistId, trackUri, trackName) =>
+    playlistEdit('DELETE', playlistId, trackUri, trackName, () => {
+      if (trackUri === currentTrack?.uri) setTrackInPlaylist(false);
+      setAddedToPlaylist(prev => { const n = new Set(prev); n.delete(trackUri); return n; });
+      showToast(`Removed "${trackName}"`, () => addTrackToPlaylist(playlistId, trackUri, trackName));
+    });
 
   const formatTime = (ms) => {
-    const seconds = Math.floor(ms / 1000);
-    return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
   };
 
-  // ─── Screens ──────────────────────────────────────────────────────────────────
-  if (!activated) {
-    return (
-      <div className="no-card-screen" onClick={() => {
-        if (playerRef.current) playerRef.current.activateElement();
-        setActivated(true);
-      }} style={{ cursor: 'pointer' }}>
-        <div className="nfc-icon">👆</div>
-        <h2>Tap to activate</h2>
-      </div>
-    );
-  }
-
+  // ─── Screens ──────────────────────────────────────────────────────────────
   if (!currentCard) {
     return (
       <div className="no-card-screen">
@@ -376,7 +233,6 @@ function SpotifyPlayer({ token, currentCard }) {
       </div>
     );
   }
-
   if (!currentTrack) {
     return (
       <div className="loading-screen">
@@ -385,22 +241,15 @@ function SpotifyPlayer({ token, currentCard }) {
     );
   }
 
-  // Playlist ID is only non-null for playlist cards; album cards can't be modified
   const playlistId = currentCard.spotify_uri?.startsWith('spotify:playlist:')
     ? currentCard.spotify_uri.split(':')[2]
     : null;
 
-  // ─── Main Player UI ───────────────────────────────────────────────────────────
+  // ─── Main player UI ─────────────────────────────────────────────────────────
   return (
     <div className="player-container">
-
-      {/* ── Column 1: Player ── */}
       <div className="player-section">
-        <img
-          src={currentTrack.album?.images?.[0]?.url}
-          alt={currentTrack.album?.name}
-          className="album-art"
-        />
+        <img src={currentTrack.album?.images?.[0]?.url} alt={currentTrack.album?.name} className="album-art" />
         <div className="track-info">
           <h2 className="track-name">{currentTrack.name}</h2>
           <p className="artist-name">{currentTrack.artists?.map(a => a.name).join(', ')}</p>
@@ -414,18 +263,12 @@ function SpotifyPlayer({ token, currentCard }) {
         </div>
         <div className="controls">
           <button onClick={skipPrevious} className="control-btn">⏮</button>
-          <button onClick={togglePlay} className="control-btn play-btn">
-            {isPaused ? '▶' : '⏸'}
-          </button>
+          <button onClick={togglePlay} className="control-btn play-btn">{isPaused ? '▶' : '⏸'}</button>
           <button onClick={skipNext} className="control-btn">⏭</button>
         </div>
         <div className="volume-control">
           <span className="volume-icon">🔈</span>
-          <input
-            type="range" min="0" max="1" step="0.01"
-            value={volume} onChange={handleVolume}
-            className="volume-slider"
-          />
+          <input type="range" min="0" max="1" step="0.01" value={volume} onChange={handleVolume} className="volume-slider" />
           <span className="volume-icon">🔊</span>
         </div>
         {playlistId && (
@@ -433,15 +276,13 @@ function SpotifyPlayer({ token, currentCard }) {
             className={`playlist-btn${trackInPlaylist ? ' in-playlist' : ''}`}
             onClick={() => trackInPlaylist
               ? removeTrackFromPlaylist(playlistId, currentTrack.uri, currentTrack.name)
-              : addTrackToPlaylist(playlistId, currentTrack.uri, currentTrack.name)
-            }
+              : addTrackToPlaylist(playlistId, currentTrack.uri, currentTrack.name)}
           >
             {trackInPlaylist ? '♥ In playlist' : '♡ Add to playlist'}
           </button>
         )}
       </div>
 
-      {/* ── Column 2: Lyrics ── */}
       <div className="lyrics-section">
         <div className="section-header">Lyrics</div>
         <div className="lyrics-content">
@@ -450,25 +291,18 @@ function SpotifyPlayer({ token, currentCard }) {
         </div>
       </div>
 
-      {/* ── Column 3: Queue ── */}
       <div className="queue-section">
         <div className="section-header">Up Next</div>
         <div className="queue-list">
           {queue.length > 0 ? queue.slice(0, 5).map((track, i) => (
             <div key={i} className="queue-item queue-item-playable" onClick={() => playQueueTrack(track)}>
-              <img
-                src={track.album?.images?.slice(-1)[0]?.url}
-                alt=""
-                className="queue-item-art"
-              />
+              <img src={track.album?.images?.slice(-1)[0]?.url} alt="" className="queue-item-art" />
               <div className="queue-item-info">
                 <div className="queue-item-name">{track.name}</div>
                 <div className="queue-item-artist">{track.artists?.map(a => a.name).join(', ')}</div>
               </div>
             </div>
-          )) : (
-            <p className="queue-empty">No upcoming tracks</p>
-          )}
+          )) : (<p className="queue-empty">No upcoming tracks</p>)}
         </div>
         {suggestions.length > 0 && (
           <div className="suggestions-area">
@@ -477,16 +311,8 @@ function SpotifyPlayer({ token, currentCard }) {
             {suggestions.map((track, i) => {
               const alreadyAdded = addedToPlaylist.has(track.uri);
               return (
-                <div
-                  key={i}
-                  className="queue-item suggestion-item clickable"
-                  onClick={() => playSingleTrack(track)}
-                >
-                  <img
-                    src={track.album?.images?.slice(-1)[0]?.url}
-                    alt=""
-                    className="queue-item-art"
-                  />
+                <div key={i} className="queue-item suggestion-item clickable" onClick={() => playSingleTrack(track)}>
+                  <img src={track.album?.images?.slice(-1)[0]?.url} alt="" className="queue-item-art" />
                   <div className="queue-item-info">
                     <div className="queue-item-name">{track.name}</div>
                     <div className="queue-item-artist">{track.artists?.map(a => a.name).join(', ')}</div>
@@ -495,9 +321,7 @@ function SpotifyPlayer({ token, currentCard }) {
                     <span
                       className={`add-btn${alreadyAdded ? ' added' : ''}`}
                       onClick={e => { e.stopPropagation(); !alreadyAdded && addTrackToPlaylist(playlistId, track.uri, track.name); }}
-                    >
-                      {alreadyAdded ? '✓' : '+'}
-                    </span>
+                    >{alreadyAdded ? '✓' : '+'}</span>
                   )}
                 </div>
               );
@@ -506,7 +330,6 @@ function SpotifyPlayer({ token, currentCard }) {
         )}
       </div>
 
-      {/* ── Toast ── */}
       {toast && (
         <div className="toast">
           <span className="toast-message">{toast.message}</span>
