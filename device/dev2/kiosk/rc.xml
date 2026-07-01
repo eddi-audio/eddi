@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+	<touch deviceName="wch.cn USB2IIC_CTP_CONTROL" mapToOutput="HDMI-A-1" mouseEmulation="yes"/>
+</openbox_config>

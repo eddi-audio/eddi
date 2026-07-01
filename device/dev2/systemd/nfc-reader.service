@@ -1,0 +1,16 @@
+[Unit]
+Description=NFC Player Reader (PN532 over SPI — NDEF poll loop)
+After=nfc-backend.service
+Wants=nfc-backend.service
+
+[Service]
+User=dancalt
+WorkingDirectory=/home/dancalt/nfc-player/backend
+# Needs /dev/spidev* (group spi) + GPIO (group gpio) for the PN532 soft-CS on D25.
+SupplementaryGroups=spi gpio
+ExecStart=/home/dancalt/nfc-player/venv/bin/python /home/dancalt/nfc-player/backend/nfc_reader.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

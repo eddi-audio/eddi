@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+venv/
+frontend/build/
+frontend/node_modules/
+_disabled/

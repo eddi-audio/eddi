@@ -1,0 +1,8 @@
+[Unit]
+Description=Eddi WiFi connectivity watchdog (self-heal off-network)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wifi-watchdog.sh

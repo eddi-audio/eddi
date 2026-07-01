@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Eddi WiFi watchdog periodically
+
+[Timer]
+# Give the box time to boot + associate before the first check (avoids
+# counting normal boot-time association delay as a failure).
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

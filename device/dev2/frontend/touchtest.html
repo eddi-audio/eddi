@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- dev2 touch-alignment test. Tap the screen: a dot should land EXACTLY under
+     your finger, and the corner labels should read right-side up. Temporary —
+     swapped in over the placeholder, then restored. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=480, height=800, initial-scale=1, viewport-fit=cover" />
+  <title>Eddi — touch test</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+    html,body { width:100vw; height:100vh; overflow:hidden; background:#0a0a0c; color:#e4e4e7;
+      font-family:-apple-system,system-ui,sans-serif; touch-action:none; }
+    #stage { position:fixed; inset:0; }
+    .corner { position:fixed; font-size:13px; color:#1db954; font-weight:700; letter-spacing:.5px; }
+    .tl{top:8px;left:8px}.tr{top:8px;right:8px}.bl{bottom:8px;left:8px}.br{bottom:8px;right:8px}
+    #mid { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
+    #mid h1{font-size:26px;margin-bottom:8px}#mid p{font-size:15px;color:#a1a1aa}
+    #readout { position:fixed; top:50%; left:50%; transform:translate(-50%,40px);
+      font-size:14px; color:#facc15; font-variant-numeric:tabular-nums; }
+    .dot { position:fixed; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%;
+      background:rgba(29,185,84,.55); border:2px solid #1db954; pointer-events:none; }
+    .cross { position:fixed; background:#ef4444; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div class="corner tl">TOP-LEFT</div>
+  <div class="corner tr">TOP-RIGHT</div>
+  <div class="corner bl">BOTTOM-LEFT</div>
+  <div class="corner br">BOTTOM-RIGHT</div>
+  <div id="mid"><h1>Tap anywhere</h1><p>a dot should land under your finger</p></div>
+  <div id="readout">viewport: <span id="vp"></span></div>
+  <script>
+    document.getElementById('vp').textContent = window.innerWidth + ' × ' + window.innerHeight;
+    function mark(x, y) {
+      const d = document.createElement('div'); d.className = 'dot';
+      d.style.left = x + 'px'; d.style.top = y + 'px';
+      document.getElementById('stage').appendChild(d);
+      document.getElementById('readout').textContent = `tap: ${Math.round(x)}, ${Math.round(y)}  (vp ${innerWidth}×${innerHeight})`;
+      // keep only the last ~12 dots
+      const dots = document.querySelectorAll('.dot');
+      if (dots.length > 12) dots[0].remove();
+    }
+    addEventListener('touchstart', e => { for (const t of e.changedTouches) mark(t.clientX, t.clientY); }, {passive:true});
+    addEventListener('pointerdown', e => mark(e.clientX, e.clientY));
+  </script>
+</body>
+</html>

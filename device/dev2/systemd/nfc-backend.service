@@ -1,0 +1,16 @@
+[Unit]
+Description=NFC Player Backend (Flask broker :5000 — token + card resolve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dancalt
+WorkingDirectory=/home/dancalt/nfc-player/backend
+# app.py loads backend/.env itself via python-dotenv (Spotify client id + refresh
+# token). The venv has Flask/flask-cors/requests/dotenv installed.
+ExecStart=/home/dancalt/nfc-player/venv/bin/python /home/dancalt/nfc-player/backend/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

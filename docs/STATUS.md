@@ -1,10 +1,219 @@
 # Eddi — Where We Are
 
-_Last updated: 2026-06-18_
+_Last updated: 2026-07-01_
 
 Source-of-truth snapshot. The web side (`eddi.audio`) is live; the current push
 is the React Native Android app toward production. See `docs/RUNBOOK.md` for how
 to build/run and fixes for problems already hit.
+
+## Session log — 2026-07-01 (dev1/mc: hardware whack-a-mole → the real bug was a hardcoded touch port)
+
+A long hardware night on the Pi 5 (`mc`). A card-presence **microswitch** wired to GPIO17 kicked
+off a cascade of confusion. What actually happened, in order:
+
+- **"Freezes/outages" = undervoltage brownouts, not switch *logic*.** Nothing in software reads
+  GPIO17 (`card_present` is derived from NFC state), so the switch can only hurt *electrically*. The
+  supply is marginal (`EXT5V_V ≈ 4.92V`, recurring `hwmon Undervoltage detected!` — one was literally
+  the last log line before a hard reset). Same PSU as the stable days prior, so the added wiring
+  loaded the rail. **Reminder: BCM GPIO17 = physical pin 11, but physical pin 17 is 3.3V** — a lead on
+  a rail + the switch bridging to GND = a short. Wire switches GPIO↔GND only; get "HIGH" from an
+  internal pull-up, never a power pin.
+- **Reader went down** (`RuntimeError: Failed to detect the PN532`, crash-looping) — an SPI wire
+  knocked loose during the switch work. Reseated per the PN532 pinout; reads cards again.
+- **Touch "dead" → then "rotated" → root cause was a HARDCODED port.** Panel + cable were fine (raw
+  digitizer events flow). The bug: labwc `rc.xml` hardcoded `<touch mapToOutput="HDMI-A-2">` while the
+  panel came up on **HDMI-A-1** — so the display rotated (autostart auto-detects the output) but touch
+  stayed mapped to a dead port and every tap landed 90° off. **Fixed properly:** `kiosk/labwc-autostart`
+  now pins the touch mapping to the *auto-detected* live output + `labwc --reconfigure` — self-heals on
+  any port/cable change, no hardcode. rc.xml vendored.
+- **Blur + wave restored + deployed.** Both had been left OFF as leftover `DIAG` flags
+  (`filter:none`, `animation:none`) from the 06-30 CPU-loop hunt (the real culprit was fixed
+  elsewhere). Re-enabled (`blur(34px)`, `pw-scroll 1s`), rebuilt, deployed. Wave ≈18% CPU while
+  playing — `steps(15)` knob noted if it runs hot.
+- **`device/dev2/` is now committed** (was untracked); rc.xml vendored; RUNBOOK entry + a
+  `feedback-no-hardcoded-ports` memory added.
+
+**Verify on device:** tap play (touch aligned?), blur behind the art, wave animating. Power is still
+marginal — a proper **5.1V/5A** supply + short cable is the real follow-up.
+
+## Session log — 2026-06-30 (dev2: holistic hardening — the cascade was ONE root cause)
+
+**The whole dev2 "everything's broken" cascade traced to one bug.** A `useInvalidateQueue()`
+that returned a fresh function every render (no `useCallback`) made `usePlayback`'s SDK-listener
+effect re-run every render → a `getCurrentState → setState → re-render` loop that **pinned a core
+at ~90% CPU**. That single loop produced: seconds-late UI (taps registered but the screen couldn't
+repaint), the heat (82 °C → throttling/undervoltage flags), and the perceived "touch/volume/screen
+not working." Fix = one memoization (`useQueue.js`). After it: **renderer 90%→0% idle, 82→53 °C,
+`throttled=0x0`** (was 0xf0008). Verified on a real reboot: comes up **portrait, no white screen,
+0% idle** — the whole nightmare gone.
+
+Also landed a holistic hardening pass (Phase 1+2, deployed + verified): heart can't like the prior
+card's track during load; like-state honest (`proxy_like` returns Spotify's real status, `useLiked`
+restores the prior set on failure); duplicate-liked-playlist race closed; pause-on-removal can't
+abort (`safe_json` guards every parse site — no more 500s/dead daemon threads); rAF/timer/promise
+cleanup on unmount; kiosk watchdog now `pkill -9` (SIGKILL — SIGTERM can't kill a frozen renderer).
+
+**Other dev2 hardware/kiosk fixes this stretch:** orientation was kanshi targeting the wrong HDMI
+output name (`HDMI-A-2` vs the panel's `HDMI-A-1`) → fixed + a boot-race backstop in the autostart;
+the card-presence **microswitch** wired to GPIO17 (COM→GND pin9, NC-pair→pin11, card-in=HIGH);
+audio is HDMI-only (no USB/I2S) via a bass-EQ filter to the display's HDMI. **Power settled** (Anker
+5V/3A + PPS 5–11V/5A; 5V rail 4.96 V — fine); heatsink added.
+
+**Still open:** the `PlayingWave` play-button animation costs ~18% CPU while playing (this Pi's GPU
+won't composite the transform — harmless now with the heatsink; `steps()` or static would cut it);
+the `∿ like` flow is still blocked on re-minting the device token with playlist scopes; Phase 3 =
+splitting the overloaded `usePlayback` (behind tests) is the remaining structural work. Full detail:
+`~/.claude/plans/okay-so-we-are-joyful-frost.md`.
+
+## Session log — 2026-06-26 (dev2: player redesign + ∿ "like" flow)
+
+Shipped the **Figma 116:560 player redesign** on the Pi 5 (`192.168.2.2`): blurred
+backdrop (faded), **swipe-to-skip album-art carousel** (optimistic), **glassy transport**
+(wide play/pause showing **∿ while playing**, the **eddi-heart favorite**, separate
+shuffle-toggle + repeat off→one→all). Icons are now **inline SVG components**
+(`components/icons.jsx`) — CSS mask failed (the Figma SVGs are 100%-sized, no intrinsic
+size). Bottom sheet is now **grip-only when closed** (`.sheet-body` opacity is drag-driven).
+
+Wired the **∿ "like" flow** (heart → "∿ liked on eddi ∿" playlist): backend
+`get_or_create_liked_playlist` + `/spotify/like` + `/spotify/liked-uris`; `useLiked` +
+favorite button + toast. **⚠️ Blocked on a token re-mint** — the device token lacks
+`playlist-modify-*`; `get_refresh_token.py` SCOPES are updated, Daniel must re-run it +
+paste the new `SPOTIFY_REFRESH_TOKEN` into the device `.env` + restart `nfc-backend`.
+
+**Open UI action items** (recorded, not done): (1) progress bar doesn't track reliably —
+seek works but it then pauses / never starts / sticks ~0:30 (look at `usePlayback` ticker +
+the `width 1s` transition); (2) animate the play/pause ∿ as a live sine wave; (3) add a
+little snap to the bottom-sheet drag-scroll. **Next build:** card duplication / "add to
+others" + NFC **write mode** (registry → new owned playlist → `POST /cards` → write a blank
+NTAG215). Full detail in the plan file `~/.claude/plans/okay-so-we-are-joyful-frost.md`.
+
+## Session log — 2026-06-25 (dev2 on the Pi 5: touch scroll, NFC robustness)
+
+**⚠️ Device pivot:** the dev2 portrait player now runs on the **dev1 Pi 5** (`mc`),
+repurposed with the **Elecrow 5" touch panel + PN532 + USB speakers (HDMI→aux)**. The
+Pi Zero 2 W (`eddi2`) is set aside (too slow to first paint). This session reached the
+Pi over **ethernet → the Mac** (macOS Internet Sharing, Pi at `192.168.2.2`; also
+`mc.local`/`10.0.0.51` on WiFi). Same `nfc-player` stack + the dev2 Vite UI.
+
+Fixed, all verified on-device:
+
+- **🏆 Touch scroll — root cause was the input layer, not CSS/JS.** The track list
+  wouldn't scroll. The panel (`wch.cn USB2IIC_CTP_CONTROL`) is a genuine 5-point
+  touchscreen (`ID_INPUT_TOUCHSCREEN=1`, libinput `touch`; the `mouse0` handler is just
+  mousedev compat), but **Chromium ran under XWayland**, which delivers touch to X11
+  clients as an **emulated mouse** — so taps/drag worked but mouse-drag can't scroll a
+  div. Fix: **`--ozone-platform=wayland`** in the kiosk launcher → Chromium is a native
+  Wayland client → real multi-touch. Persisted; **survives reboot** via the self-heal
+  loop. (See RUNBOOK "kiosk touch scroll".)
+- **Queue bottom sheet — rewritten without vaul.** vaul coupled drag+scroll (it
+  pointer-captured every touch). Replaced with a hand-rolled sheet: **drag only on the
+  grab handle** (pointer events → translateY → snap, with flick momentum), and the list
+  is a **self-driven scroller** (`touch-action: none` + pointer-events move `scrollTop`,
+  with flick momentum + tap-guard) so it works for touch *and* mouse with zero conflict.
+  Bundle dropped 280→218 KB. Drag, tap-to-jump, scroll all confirmed.
+- **NFC truncated-id bug** (caused "stuck loading / Card not recognized"): the reader
+  sometimes read a partial NDEF → a short eddi id (e.g. `8jp548kq`→`8jp5`) that 404s.
+  Fix in `nfc_reader.py`: reject NDEF records shorter than declared, require eddi ids ==
+  8 chars (nanoid len 8), and **re-read across polls** (up to ~4 bursts) before giving up
+  — a flaky placement self-heals with no re-tap. Plus a frontend **"Card not recognized"**
+  state instead of an infinite spinner.
+- **Boot-transient self-heal** (`app.py`): a card left in the reader across a reboot is
+  read *before* the network is up, so its resolve fails. Now the backend keeps the eddi
+  id and a **`_resolve_retry_loop`** retries every 5s until the link returns, then plays —
+  no re-tap. Genuine 404s are cached so dead cards don't hammer the API. Verified by
+  black-holing the API then restoring it (self-healed in ~5s).
+
+## Session log — 2026-06-22 (dev2: portrait player UI — the Figma build, LIVE)
+
+Built the **dev2 portrait player UI** from the Figma file *Eddi-Audio* (node
+`80:861`, pulled live via the Figma Dev Mode MCP) and shipped it to eddi2. **It's
+running end-to-end on the device:** tap a card → resolves → plays → the portrait
+player shows live album art, title/artist, progress, transport — verified on
+screen (Imagine Dragons "Radioactive") and by card tap.
+
+- **Stack:** new **Vite + React** app at `device/dev2/frontend/` (built on the Mac,
+  167KB JS / 55KB gz, served from `frontend/build/` by `serve_build.py`). SDK +
+  backend wiring ported from dev1's `SpotifyPlayer.js` into a `usePlayer` hook;
+  presentation rebuilt to the design. Components: Player, QueueSheet (drag-up
+  Current-Card panel + track list + long-press dialog), WaitingState. Brand/icon
+  SVGs exported from Figma. Roboto installed on the Pi.
+- **Backend:** `app.py` `resolve_eddi_card` + `/nfc/current` now pass through eddi
+  data (`tap_count`, `track_count`, `attribution`, `artwork_palette`, …); added
+  `/spotify/shuffle` + `/spotify/repeat` broker endpoints.
+- **Design note:** the player's left pill is a **shuffle/smart-shuffle** toggle in
+  the design, not a Spotify/Tidal "source" badge (built to the design; shuffle is
+  wired, smart-shuffle is visual-only — Spotify-proprietary).
+- **⚠️ The big lesson (cost us hours):** on the 512MB Zero 2 W, Chromium takes
+  **MINUTES to first paint** (cold start swapping under the SDK + Widevine). A
+  black/white screen right after boot is **slow, not broken** — it eventually
+  paints the full UI. See RUNBOOK. Working render config = **software**
+  (`--disable-gpu`). Also fixed the stock **<1GB-RAM dialog** (`--no-memcheck`),
+  the **keyring** prompt (`--password-store=basic`), and **stripped the desktop**
+  (minimal `/etc/xdg/labwc/autostart`) to free RAM. For production snappiness, a
+  **Pi 4** makes first paint seconds, not minutes.
+- ⏳ Still to confirm by hand: audio out the speakers + the queue bottom-sheet
+  drag (Daniel verifying); touch-driven controls.
+
+## Session log — 2026-06-22 (dev2: baseline + portrait screen stood up)
+
+New **dev2** device — a **Pi Zero 2 W** + Elecrow 5" 800×480 HDMI touchscreen +
+HDMI audio extractor → powered speakers — to harden the stack on small hardware
+while we wait to build the real eddi (Daniel's dad arrives in a few weeks). It
+reuses the dev1 architecture (Chromium kiosk → official Web Playback SDK → Flask
+broker → PN532), on `eddi2.local` (10.0.0.28, user `dancalt`, key
+`~/.ssh/eddi_dev1`). On-device source vendored at `device/dev2/`.
+
+Baseline stood up and **verified across a cold reboot** (all of this comes up on
+boot, no hand-holding):
+- **Portrait 480×800** — labwc output `HDMI-A-1` rotated via
+  `wlr-randr --transform 90`, persisted in `~/.config/labwc/autostart`. (Flip to
+  `270` if the panel is remounted the other way.)
+- **Kiosk** — dev1's self-healing Chromium launcher (profile/cache in `/dev/shm`
+  = zero SD writes), portrait, auto-launches. Serves a 480×800 placeholder until
+  the player UI lands.
+- **Services** — `nfc-backend` (:5000), `nfc-frontend` (:3000), `nfc-reader`
+  (PN532) all active on boot. New venv-python units for backend/reader.
+- **NFC** — PN532 over SPI (soft-CS `D25`), firmware v1.6. End-to-end proven: tap
+  `eddi.audio/c/dw9ga5hu` → resolved via Eddi API → `spotify:track:…` (Radioactive).
+- **Spotify** — dev2 has its **own PKCE refresh token** (no rotation contention
+  with dev1; same eddi.audio Premium account). Token broker returns valid tokens.
+  Minter is `device/dev2/backend/get_refresh_token.py` (PKCE, no secret).
+- **Audio** — HDMI is the default PipeWire sink; test tone confirmed by ear
+  through the extractor → powered speakers. (No amp EQ — that was Merus-HAT
+  specific to dev1; dev2 uses a plain line-level extractor.)
+- **WiFi** — `99-no-powersave.conf` + ported `wifi-watchdog` (CONN
+  `netplan-wlan0-Altbach Seattle`), timer active.
+
+⏳ **Open:** (1) **touchscreen** — the screen's bundled USB is charge-only, so
+touch doesn't enumerate (`lsusb` = root hub only); needs a real **data** cable
+into the Pi's middle micro-USB (data/OTG) port, then touch-alignment to the
+rotation. (2) **Player UI** — the 480×800 portrait React UI is the only remaining
+build; Figma designs incoming. Until then the kiosk shows the placeholder and
+card taps resolve but have no SDK device to play to ("No target device registered
+yet" is expected).
+
+## Session log — 2026-06-20 (dev1: WiFi self-heal + audio tuning)
+
+Two things: dev1 kept **falling off the network** (twice; once mid-playback —
+which kills the Spotify SDK stream, so "the player suddenly stopped"). Signal
+(−46 dBm) and power (`throttled=0x0`) were fine → driver disassoc / NetworkManager
+giving up, not range/power. Hardened so it **self-heals** (all persistent, all
+verified):
+
+- **`wifi-watchdog`** (vendored `device/dev1/systemd/`): timer pings the gateway
+  every 60s → `nmcli con up` on failure, and **reboots** after ~5 min still-down
+  (the systemd HW watchdog only catches CPU freezes, not off-network-but-alive).
+- **NM `autoconnect-retries=0`** (infinite) — default gives up after a few tries;
+  likely why it used to stay dead after a reboot.
+- **Persistent journald** — RPi's `40-rpi-volatile-storage.conf` was wiping logs
+  every reboot (so drops were never captured); overridden to `Storage=persistent`.
+- Verified: forced `nmcli con down` self-recovered in ~10s; a deliberate reboot
+  rejoined WiFi on its own in ~44s (no power-cycle).
+
+**Audio tuned** (fuller bass at a ~25%-lower max, persistent): PipeWire bass-EQ
+filter-chain (low-shelf +9dB@120, kick +2dB@80) as default sink → Merus amp at
+−14 dB ceiling (`alsactl store`). Config vendored at `device/dev1/audio/bass-eq.conf`.
+⏳ Pending: final by-ear confirmation from Daniel (kick clean / loudness right).
 
 ## Session log — 2026-06-17/18 (dev1: Spotify playback — the long way round)
 

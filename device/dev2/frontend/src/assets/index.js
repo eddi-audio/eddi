@@ -1,0 +1,18 @@
+// SVG/PNG brand + icon assets exported from the Figma file (node 80:861) via the
+// Dev Mode MCP. Vite fingerprints + inlines/bundles these on build.
+export { default as logo } from './logo.svg'
+export { default as waveOrange } from './wave-orange.svg'
+export { default as eddiMark } from './eddi-mark.png'
+export { default as iconSkipBack } from './skip-back.svg'
+export { default as iconSkipForward } from './skip-forward.svg'
+export { default as iconPause } from './pause.svg'
+export { default as iconPlay } from './play.svg'
+export { default as iconSmartShuffle } from './smart-shuffle.svg'
+export { default as iconWaveform } from './audio-waveform.svg'
+export { default as iconSquarePlus } from './square-plus.svg'
+export { default as iconPlayNormal } from './play-normal.svg'
+export { default as iconShuffle } from './shuffle.svg'
+export { default as iconRepeat } from './repeat.svg'
+export { default as iconRepeatOne } from './repeat-one.svg'
+export { default as iconChevronsDown } from './chevrons-down.svg'
+export { default as iconHeart } from './heart.svg'

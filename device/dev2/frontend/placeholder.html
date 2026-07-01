@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+  dev2 baseline placeholder — proves the full boot chain works portrait
+  (autologin -> labwc -> wlr-randr transform 90 -> Chromium kiosk -> :3000)
+  BEFORE the real player UI lands. serve_build.py serves this from frontend/build/.
+  The real 480x800 React build replaces this file; no other plumbing changes.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=480, height=800, initial-scale=1, viewport-fit=cover" />
+  <title>Eddi — dev2</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100vw; height: 100vh; overflow: hidden;
+      background: #0a0a0c; color: #f4f4f5;
+      font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    .wrap {
+      width: 100vw; height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 28px; text-align: center;
+      background: radial-gradient(120% 80% at 50% 20%, #16161c 0%, #0a0a0c 60%);
+    }
+    .mark {
+      width: 132px; height: 132px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(160deg, #1db954 0%, #128a3e 100%);
+      box-shadow: 0 0 0 0 rgba(29,185,84,.55);
+      animation: pulse 2.4s ease-out infinite;
+    }
+    .mark span { font-size: 64px; font-weight: 700; line-height: 1; }
+    h1 { font-size: 30px; font-weight: 650; letter-spacing: .5px; }
+    p  { font-size: 17px; color: #a1a1aa; max-width: 300px; line-height: 1.4; }
+    .hint {
+      position: absolute; bottom: 26px;
+      font-size: 13px; color: #52525b; letter-spacing: .4px;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(29,185,84,.45); }
+      70%  { box-shadow: 0 0 0 28px rgba(29,185,84,0); }
+      100% { box-shadow: 0 0 0 0 rgba(29,185,84,0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark"><span>e</span></div>
+    <h1>Eddi</h1>
+    <p>Tap a card to start the music.</p>
+    <div class="hint">dev2 · baseline ready · waiting for the player UI</div>
+  </div>
+</body>
+</html>

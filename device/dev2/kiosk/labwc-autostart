@@ -1,0 +1,84 @@
+# Eddi dev2 kiosk launcher — installed at ~/.config/labwc/autostart
+# (dev2 runs on the dev1 Pi 5; this is the LIVE config: kanshi portrait + GPU.)
+#
+# Hardened, self-healing Chromium kiosk:
+#  - waits for the static frontend (:3000) AND the backend (:5000/health) before
+#    launching, so the app never mounts against a not-yet-ready API on a cold boot
+#  - runs its profile + cache in /dev/shm (tmpfs / RAM): ZERO SD-card writes, fresh
+#    profile each boot, never a "restore pages?" bubble
+#  - relaunches automatically if Chromium ever EXITS (a crash can't leave a blank screen)
+#  - HEALTH WATCHDOG: a wedged render (white screen / GPU stall / React that never
+#    mounted) leaves Chromium ALIVE, so the exit-relaunch loop alone can't catch it.
+#    The frontend polls the backend every ~2-3s; /health reports seconds since the last
+#    poll. If it's been idle >22s the watchdog kills Chromium so the loop relaunches a
+#    fresh instance. (This is what recovers the white-screen-on-boot wedge.)
+#  - If that white-screen wedge ever becomes frequent, the GPU path is the suspect:
+#    add `--disable-gpu --disable-gpu-compositing` to the flags below (software render;
+#    proven to render in headless swiftshader) — costs some animation smoothness.
+#  - PORTRAIT (hotplug-safe): kanshi pins HDMI to transform 90 and RE-APPLIES on every
+#    monitor power-cycle/hotplug (event-driven, no polling). Edit ~/.config/kanshi/config
+#    — flip transform to 270 if the panel mounts the other way.
+kanshi >/dev/null 2>&1 &
+# Portrait, boot-robust: kanshi matches by output NAME and can lose the race / miss the output at
+# session start, leaving the panel in native landscape. So ALSO force the transform here — auto-
+# detect whichever HDMI output is connected (the panel enumerates as HDMI-A-1, HDMI-A-2 on the
+# other micro-HDMI port) and retry until it's up.
+#
+# CRITICAL: the touch device must map to the SAME output, or taps land rotated/offset from the UI.
+# Do NOT hardcode a port in rc.xml's <touch mapToOutput> — the Pi 5's two micro-HDMI jacks show up
+# as HDMI-A-1 / HDMI-A-2 and a moved cable silently breaks touch while the display still rotates
+# fine (looks perfect, feels dead). Instead, pin the touch mapping to the live output here and
+# reload labwc. This self-heals on any port change. (Bit us 2026-07-01 — see RUNBOOK.)
+( for i in $(seq 1 40); do
+    out=$(wlr-randr 2>/dev/null | grep -oE '^HDMI-A-[0-9]+' | head -1)
+    if [ -n "$out" ]; then
+      wlr-randr --output "$out" --transform 90 2>/dev/null
+      if ! grep -q "mapToOutput=\"$out\"" ~/.config/labwc/rc.xml 2>/dev/null; then
+        sed -i "s|mapToOutput=\"HDMI-A-[0-9]*\"|mapToOutput=\"$out\"|" ~/.config/labwc/rc.xml
+        labwc --reconfigure 2>/dev/null
+      fi
+      break
+    fi
+    sleep 0.5
+  done ) &
+mkdir -p /dev/shm/eddi-kiosk
+(
+  while true; do
+    # dev touch-escape: 10 taps in the top-right corner -> POST /dev/exit-kiosk drops this
+    # flag + kills Chromium; the loop then leaves it closed so labwc desktop shows. Reboot
+    # clears it (tmpfs) and the kiosk returns.
+    [ -f /dev/shm/eddi-exit-kiosk ] && break
+    while ! curl -s http://localhost:3000 >/dev/null 2>&1; do sleep 1; done
+    while ! curl -s http://localhost:5000/health >/dev/null 2>&1; do sleep 1; done
+    chromium \
+      --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run \
+      --window-size=480,800 \
+      --disable-session-crashed-bubble --hide-crash-restore-bubble \
+      --check-for-update-interval=31536000 --disable-component-update \
+      --disable-features=Translate,TranslateUI \
+      --disable-background-networking \
+      --disable-pinch --overscroll-history-navigation=0 \
+      --autoplay-policy=no-user-gesture-required \
+      --user-data-dir=/dev/shm/eddi-kiosk \
+      --disk-cache-dir=/dev/shm/eddi-kiosk-cache \
+      http://localhost:3000
+    [ -f /dev/shm/eddi-exit-kiosk ] && break
+    sleep 2
+  done
+) &
+# Health watchdog — reloads a wedged-but-alive kiosk the exit-relaunch loop can't see.
+# Generous grace windows so a freshly-relaunched instance that's still mounting React
+# (and therefore not polling yet) is never killed mid-boot.
+(
+  sleep 35   # let the first kiosk fully boot + start polling before watching
+  while true; do
+    [ -f /dev/shm/eddi-exit-kiosk ] && break
+    idle=$(curl -s --max-time 4 http://localhost:5000/health 2>/dev/null | sed -n 's/.*"frontend_idle_s"[: ]*\([0-9]*\).*/\1/p')
+    if [ -n "$idle" ] && [ "$idle" -gt 22 ]; then
+      echo "[kiosk-watchdog] frontend idle ${idle}s — reloading Chromium" >&2
+      pkill -9 -f chromium 2>/dev/null   # SIGKILL all chromium: a GPU-frozen renderer ignores SIGTERM
+      sleep 30   # grace: let the relaunched instance mount React + resume polling
+    fi
+    sleep 7
+  done
+) &

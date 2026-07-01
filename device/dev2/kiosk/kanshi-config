@@ -1,0 +1,16 @@
+# Eddi dev2 — kanshi output profile (installed at ~/.config/kanshi/config).
+#
+# kanshi applies this at session start AND re-applies on monitor hotplug / power-cycle
+# (which otherwise re-detects as native landscape and breaks the portrait UI). The panel
+# enumerates as HDMI-A-1 on the Pi 5's first micro-HDMI port, HDMI-A-2 on the second — so
+# there's a profile for each, and kanshi uses whichever matches the connected port.
+# (The labwc autostart ALSO forces transform 90 directly, as a boot-race backstop.)
+#
+# 800x480 native (landscape); transform 90 presents it as 480x800 portrait. Flip to 270 if
+# the panel is mounted the other way.
+profile eddi1 {
+    output "HDMI-A-1" mode 800x480 position 0,0 scale 1 transform 90
+}
+profile eddi2 {
+    output "HDMI-A-2" mode 800x480 position 0,0 scale 1 transform 90
+}
